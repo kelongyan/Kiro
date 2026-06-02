@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain } from 'electron'
 import { Registrar, newConfig, type RegistrationConfig } from './index'
 
 // 注册池：支持多个并发注册任务
@@ -6,12 +6,11 @@ const registrarPool = new Map<string, Registrar>()
 // 手动模式使用固定 key
 const MANUAL_KEY = '__manual__'
 
-export function registerIPCHandlers(getMainWindow: () => BrowserWindow | null): void {
+type RegistrationEventSender = (channel: string, payload: unknown) => void
+
+export function registerIPCHandlers(sendEvent: RegistrationEventSender): void {
   const sendLog = (msg: string, taskId?: string): void => {
-    const win = getMainWindow()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('registration-log', { message: msg, taskId })
-    }
+    sendEvent('registration-log', { message: msg, taskId })
   }
 
   // 启动自动注册（支持并发：每个 taskId 独立运行）
@@ -30,10 +29,7 @@ export function registerIPCHandlers(getMainWindow: () => BrowserWindow | null): 
       registrarPool.delete(taskId)
       // 仅单次注册（无 taskId）发送 complete 事件
       if (!config.taskId) {
-        const win = getMainWindow()
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('registration-complete', result)
-        }
+        sendEvent('registration-complete', result)
       }
       return { success: true, result }
     } catch (err) {

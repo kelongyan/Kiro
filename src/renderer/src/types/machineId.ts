@@ -55,6 +55,16 @@ export interface MachineIdResult {
   machineId?: string
   error?: string
   requiresAdmin?: boolean
+  adminRestart?: AdminRestartInfo
+}
+
+export interface AdminRestartInfo {
+  requiresAdmin: true
+  canAutoRestart: false
+  osType: OSType
+  executablePath: string
+  command: string
+  message: string
 }
 
 // 主进程 API 接口
@@ -67,8 +77,8 @@ export interface MachineIdAPI {
   generateRandomMachineId: () => string
   // 检查管理员权限
   checkAdminPrivilege: () => Promise<boolean>
-  // 请求管理员权限重启
-  requestAdminRestart: () => Promise<boolean>
+  // 获取管理员权限启动提示
+  requestAdminRestart: () => Promise<AdminRestartInfo>
   // 获取操作系统类型
   getOSType: () => OSType
   // 备份机器码到文件

@@ -21,6 +21,8 @@ import { AccountPool, ErrorType, classifyError } from './accountPool'
 import { callKiroApiStream, callKiroApi, fetchKiroModels, setModelContextWindow, type KiroModel } from './kiroApi'
 import { proxyLogger } from './logger'
 import { getKProxyService, generateDeviceId } from '../kproxy'
+import { getUserDataPath } from '../services/runtime/paths'
+import { ensureProxySelfSignedCert } from './selfSignedCert'
 import {
   openaiToKiro,
   claudeToKiro,
@@ -512,10 +514,8 @@ export class ProxyServer {
     } else {
       // 自动生成自签证书（位于 userData/proxy-tls/）
       try {
-        const { app } = require('electron')
-        const { ensureProxySelfSignedCert } = require('./selfSignedCert')
         const hostnames = [this.config.host || '127.0.0.1']
-        const result = ensureProxySelfSignedCert(app.getPath('userData'), hostnames)
+        const result = ensureProxySelfSignedCert(getUserDataPath(), hostnames)
         proxyLogger.info('ProxyServer', `Using self-signed TLS cert (SAN=${result.altNames.join(',')}, fingerprint=${result.fingerprint.slice(0, 19)}...)`)
         cert = result.cert
         key = result.key
@@ -532,9 +532,7 @@ export class ProxyServer {
    */
   getSelfSignedCertInfo(): import('./selfSignedCert').ProxySelfSignedCert | null {
     try {
-      const { app } = require('electron')
-      const { ensureProxySelfSignedCert } = require('./selfSignedCert')
-      return ensureProxySelfSignedCert(app.getPath('userData'), [this.config.host || '127.0.0.1'])
+      return ensureProxySelfSignedCert(getUserDataPath(), [this.config.host || '127.0.0.1'])
     } catch (err) {
       proxyLogger.warn('ProxyServer', `getSelfSignedCertInfo failed: ${(err as Error).message}`)
       return null
@@ -544,10 +542,8 @@ export class ProxyServer {
   /** 强制重新生成自签证书（用户在 UI 上点"重新生成"） */
   regenerateSelfSignedCert(): import('./selfSignedCert').ProxySelfSignedCert | null {
     try {
-      const { app } = require('electron')
-      const { ensureProxySelfSignedCert } = require('./selfSignedCert')
       this.appendAuditLog('regenerate_self_signed_cert', { host: this.config.host })
-      return ensureProxySelfSignedCert(app.getPath('userData'), [this.config.host || '127.0.0.1'], true)
+      return ensureProxySelfSignedCert(getUserDataPath(), [this.config.host || '127.0.0.1'], true)
     } catch (err) {
       proxyLogger.warn('ProxyServer', `regenerateSelfSignedCert failed: ${(err as Error).message}`)
       return null

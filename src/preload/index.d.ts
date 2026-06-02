@@ -420,6 +420,14 @@ interface KiroApi {
     machineId?: string
     error?: string
     requiresAdmin?: boolean
+    adminRestart?: {
+      requiresAdmin: true
+      canAutoRestart: false
+      osType: 'windows' | 'macos' | 'linux' | 'unknown'
+      executablePath: string
+      command: string
+      message: string
+    }
   }>
 
   // 设置新机器码
@@ -428,6 +436,14 @@ interface KiroApi {
     machineId?: string
     error?: string
     requiresAdmin?: boolean
+    adminRestart?: {
+      requiresAdmin: true
+      canAutoRestart: false
+      osType: 'windows' | 'macos' | 'linux' | 'unknown'
+      executablePath: string
+      command: string
+      message: string
+    }
   }>
 
   // 生成随机机器码
@@ -436,8 +452,15 @@ interface KiroApi {
   // 检查管理员权限
   machineIdCheckAdmin: () => Promise<boolean>
 
-  // 请求管理员权限重启
-  machineIdRequestAdminRestart: () => Promise<boolean>
+  // 获取管理员权限启动提示
+  machineIdRequestAdminRestart: () => Promise<{
+    requiresAdmin: true
+    canAutoRestart: false
+    osType: 'windows' | 'macos' | 'linux' | 'unknown'
+    executablePath: string
+    command: string
+    message: string
+  }>
 
   // 备份机器码到文件
   machineIdBackupToFile: (machineId: string) => Promise<boolean>

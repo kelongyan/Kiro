@@ -25,7 +25,7 @@ There is no unit-test runner. Verify code changes with `npm run lint` plus the n
 
 ### E2E proxy suite
 
-`package.json` defines `npm run test:e2e` and `npm run test:e2e:only` (→ `node test/e2e-fullsuite/run.mjs`), an integration suite of ~16 Claude/OpenAI compatibility cases run against the live API proxy. `docs/E2E-TESTING.md` documents the cases, env vars (`ZS_BASE` / `ZS_TOKEN` / `ZS_ONLY`), and the regression cases (CASE-07 / CASE-09) that should gate changes to the proxy translator.
+`package.json` defines `npm run test:e2e` and `npm run test:e2e:only` (→ `node test/e2e-fullsuite/run.mjs`), an integration suite against the live API proxy. The old E2E document was removed during handoff cleanup, so inspect the runner path and `docs/LOCAL-BROWSER-MIGRATION-PLAN.md` before using these commands.
 
 Prerequisites: the app running via `npm run dev`, the API proxy listening on `http://127.0.0.1:8787`, and at least one working (non-quota-exceeded) account.
 
@@ -45,17 +45,17 @@ This is an Electron desktop app built with `electron-vite`, with a React/Zustand
 
 ### Repository layout & ongoing restructuring
 
-The repository root is the actual app root (there is no longer a nested `Kiro-account-manager/` app folder). A staged restructuring is in progress and `docs/RESTRUCTURING-PLAN.md` is the source of truth for it. `src/main/index.ts` and `src/preload/index.ts` are still the live integration files, but new code is migrating toward these landing zones: `src/main/services/*`, `src/preload/api/*`, `src/renderer/src/app/*`, and `src/renderer/src/features/*` — prefer adding new domain logic there. Two hard rules from that plan: never mix structural moves with behavior changes, and never re-introduce a `src/main/ipc/` scaffold without deleting the old in-file handlers in the same pass (duplicate `ipcMain.handle` / `ipcMain.on` registration is the main hazard). `AGENTS.md` covers the same ground for other agents — keep it and this file aligned when commands or architecture change.
+The repository root is the actual app root (there is no longer a nested `Kiro-account-manager/` app folder). The current restructuring source of truth is `docs/LOCAL-BROWSER-MIGRATION-PLAN.md`. `src/main/index.ts` and `src/preload/index.ts` are still live transition files, while new service-boundary code is moving toward `src/server/*`, `src/main/services/*`, `src/preload/api/*`, `src/renderer/src/app/*`, and `src/renderer/src/features/*`. Do not re-introduce a `src/main/ipc/` scaffold without removing the old in-file handlers in the same pass; duplicate `ipcMain.handle` / `ipcMain.on` registration is the main hazard.
 
 ### Process split
 
-- `src/main/index.ts` — main process entrypoint. Owns app lifecycle, auto-updater, IPC handlers, persistence wiring, Kiro API calls, proxy/K-Proxy startup, tray integration, and machine-id operations.
-- `src/preload/index.ts` — context bridge exposing a large `window.api` surface. Renderer features should go through this bridge rather than importing Electron APIs directly. Newer domain APIs are composed in from `src/preload/api/*` (`app`, `update`, `kiro-settings` extracted so far); the remaining groups are still inline in `index.ts`.
+- `src/main/index.ts` — transition main process entrypoint. Still owns app lifecycle, IPC handlers, persistence wiring, Kiro API calls, proxy/K-Proxy startup, and machine-id operations. Auto-updater, tray, global shortcut, and custom window IPC have already been removed.
+- `src/preload/index.ts` — temporary context bridge exposing a large `window.api` surface. Renderer features should go through this bridge while the app is in Electron transition state. Newer domain APIs are composed in from `src/preload/api/*`; desktop-only `tray`, `update`, and `window` bridge files have already been removed.
 - `src/renderer/src/*` — React UI.
 
 ### Renderer structure
 
-- `src/renderer/src/App.tsx` drives page-level navigation, tray event listeners, startup loading, and auto-refresh lifecycle.
+- `src/renderer/src/App.tsx` drives page-level navigation, startup loading, and auto-refresh lifecycle. Tray event listeners have already been removed.
 - `src/renderer/src/app/*` is the extracted navigation layer: `navigation.ts` (shared `PageType` + menu config, also read by `Sidebar.tsx`) and `page-registry.tsx` (the page switch table `App.tsx` used to own).
 - `src/renderer/src/features/*` are currently thin facade `index.ts` files that re-export the real components from `components/pages/*` and `components/accounts/*`. Prefer importing pages through these facades; moving the implementations into the feature folders is still pending.
 - `src/renderer/src/components/pages/*` holds the actual top-level pages: home, accounts, machineId, kiroSettings, proxy, kproxy, proxyPool, register, subscription, webhooks, diagnose, configSync, logs, settings, about.
@@ -72,8 +72,7 @@ The repository root is the actual app root (there is no longer a nested `Kiro-ac
 - reading and writing local Kiro credentials / config
 - machine ID read/write and admin elevation handling
 - proxy environment-variable management
-- auto-update events
-- tray menu state and debounced tray updates
+- event publishing through `src/server/events.ts` plus temporary Electron renderer forwarding
 - persistence of proxy counters/config through `electron-store`
 
 When adding a renderer feature, there is usually a matching IPC handler added in `src/main/index.ts` and a bridge method added in `src/preload/index.ts`.
@@ -121,7 +120,7 @@ There are two different persistence patterns to keep in mind:
 - `electron.vite.config.ts` defines the main/preload/renderer build, with renderer aliases `@renderer` and `@` both pointing to `src/renderer/src`.
 - Packaging is configured in `electron-builder.yml`.
 - Linux deb packaging runs `build/linux/after-install.sh` and `build/linux/after-remove.sh`.
-- Publish target is GitHub releases via `electron-updater` / `electron-builder` config.
+- Desktop packaging still exists through `electron-builder.yml`, but Electron packaging is scheduled for removal in `docs/LOCAL-BROWSER-MIGRATION-PLAN.md`. `electron-updater` has already been removed.
 
 ## Repo-specific cautions
 
@@ -129,6 +128,6 @@ There are two different persistence patterns to keep in mind:
 - Changes to renderer capabilities often require coordinated edits in three places: `src/main/index.ts`, `src/preload/index.ts`, and the renderer caller.
 - Proxy and K-Proxy are separate systems; do not conflate the OpenAI/Claude-compatible proxy with the MITM certificate-based K-Proxy.
 - The Python files under `test/` are exploratory scripts against live services, not hermetic tests.
-- A staged restructuring is underway: read `docs/RESTRUCTURING-PLAN.md` before structural edits, keep structural moves separate from behavior changes, and never re-add a `src/main/ipc/` scaffold without removing the old handlers in the same pass.
+- A staged browserization restructuring is underway: read `docs/LOCAL-BROWSER-MIGRATION-PLAN.md` before structural edits, keep structural moves separate from behavior changes, and never re-add a `src/main/ipc/` scaffold without removing the old handlers in the same pass.
 - `src/renderer/src/features/*` are re-export facades today, not real homes for logic yet — don't assume a feature is "owned" there.
 - `.cursor/rules/mcp-messenger.mdc` is a Cursor-IDE-only MCP workflow rule (`check_messages` / `ask_question` / `send_progress`, and it forbids subagents). It does not apply to Claude Code and conflicts with this environment, so do not follow it here.

@@ -26,6 +26,15 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+interface AdminRestartInfo {
+  requiresAdmin: true
+  canAutoRestart: false
+  osType: 'windows' | 'macos' | 'linux' | 'unknown'
+  executablePath: string
+  command: string
+  message: string
+}
+
 export function MachineIdPage() {
   const {
     machineIdConfig,
@@ -55,6 +64,7 @@ export function MachineIdPage() {
   const [editingMachineId, setEditingMachineId] = useState('')
   const [accountSearchQuery, setAccountSearchQuery] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [adminRestartInfo, setAdminRestartInfo] = useState<AdminRestartInfo | null>(null)
 
   // 初始化
   useEffect(() => {
@@ -144,7 +154,8 @@ export function MachineIdPage() {
 
   // 请求管理员权限
   const handleRequestAdmin = async () => {
-    await window.api.machineIdRequestAdminRestart()
+    const info = await window.api.machineIdRequestAdminRestart()
+    setAdminRestartInfo(info)
   }
 
   // 生成随机 UUID
@@ -285,20 +296,40 @@ export function MachineIdPage() {
       {hasAdmin === false && (
         <Card className="border-warning/50 bg-gradient-to-r from-warning/10 to-warning/5 overflow-hidden">
           <CardContent className="py-4">
-            <div className="flex items-center justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-warning/20">
                   <AlertTriangle className="h-5 w-5 text-warning" />
                 </div>
                 <div>
                   <p className="font-medium text-warning">{isEn ? 'Admin Required' : '需要管理员权限'}</p>
-                  <p className="text-sm text-warning/80">{isEn ? 'Run as administrator to modify machine ID' : '修改机器码需要以管理员身份运行应用'}</p>
+                  <p className="text-sm text-warning/80">{isEn ? 'Start the local service as administrator, then modify the machine ID' : '请以管理员权限启动本地服务或应用后，再修改机器码'}</p>
                 </div>
               </div>
               <Button variant="outline" size="sm" onClick={handleRequestAdmin} className="border-warning/50 hover:bg-warning/10">
                 <Shield className="h-4 w-4 mr-1" />
-                {isEn ? 'Restart as Admin' : '以管理员重启'}
+                {isEn ? 'Show Command' : '显示启动命令'}
               </Button>
+              </div>
+
+              {adminRestartInfo && (
+                <div className="rounded-lg border border-warning/30 bg-background/70 p-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">{adminRestartInfo.message}</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 rounded bg-muted px-3 py-2 text-xs break-all text-foreground">
+                      {adminRestartInfo.command}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => copyToClipboard(adminRestartInfo.command, 'admin-command')}
+                    >
+                      {copiedId === 'admin-command' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

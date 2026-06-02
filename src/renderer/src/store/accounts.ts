@@ -2636,7 +2636,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
         get().saveToStorage()
         return true
       } else if (result.requiresAdmin) {
-        // 需要管理员权限，主进程会处理弹窗
+        // 需要管理员权限，页面会展示管理员启动提示
         return false
       } else {
         console.error('[MachineId] Failed to change:', result.error)

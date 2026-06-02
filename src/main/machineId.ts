@@ -8,7 +8,7 @@ import { promisify } from 'util'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
-import { app, dialog } from 'electron'
+import { getAppVersion, getExecutablePath, getUserDataPath } from './services/runtime/paths'
 
 const execAsync = promisify(exec)
 
@@ -59,6 +59,16 @@ export interface MachineIdResult {
   machineId?: string
   error?: string
   requiresAdmin?: boolean
+  adminRestart?: AdminRestartInfo
+}
+
+export interface AdminRestartInfo {
+  requiresAdmin: true
+  canAutoRestart: false
+  osType: OSType
+  executablePath: string
+  command: string
+  message: string
 }
 
 /**
@@ -217,83 +227,48 @@ export async function checkAdminPrivilege(): Promise<boolean> {
 }
 
 /**
- * 请求以管理员权限重新启动应用
+ * 返回管理员权限启动提示。
+ *
+ * 浏览器化后不再由服务端弹出桌面对话框或主动退出进程；
+ * 前端拿到 command 后展示给用户手动执行。
  */
-export async function requestAdminRestart(): Promise<boolean> {
+export async function requestAdminRestart(): Promise<AdminRestartInfo> {
+  return getAdminRestartInfo()
+}
+
+export function getAdminRestartInfo(): AdminRestartInfo {
   const osType = getOSType()
-  const appPath = app.getPath('exe')
+  const appPath = getExecutablePath()
+  const escapedSingleQuotePath = appPath.replace(/'/g, "''")
+  let command: string
 
-  console.log('[MachineId] Requesting admin restart, appPath:', appPath)
-
-  try {
-    switch (osType) {
-      case 'windows': {
-        // Windows: 多路径探测 PowerShell，使用 Start-Process -Verb RunAs 提权
-        const psPath = findPowerShell()
-        if (psPath) {
-          const escapedAppPath = appPath.replace(/\\/g, '\\\\')
-          const command = `"${psPath}" -NoProfile -Command "Start-Process -FilePath \"${escapedAppPath}\" -Verb RunAs"`
-          console.log('[MachineId] Running command:', command)
-
-          exec(command, { windowsHide: true }, (error) => {
-            if (error) {
-              console.error('[MachineId] Admin restart via PowerShell failed:', error)
-            }
-          })
-        } else {
-          // PowerShell 不可用时回退到 ShellExecute runas
-          console.log('[MachineId] PowerShell not found, using electron shell openPath with runas')
-          const { shell } = await import('electron')
-          shell.openExternal(`file:///${appPath}`)
-        }
-
-        // 延迟退出，确保命令有时间执行
-        setTimeout(() => {
-          console.log('[MachineId] Quitting app...')
-          app.quit()
-        }, 1000)
-        return true
-      }
-
-      case 'macos': {
-        // macOS: 使用 osascript 请求管理员权限
-        const escapedPath = appPath.replace(/'/g, "\\'")
-        const script = `do shell script "open -n '${escapedPath}'" with administrator privileges`
-        exec(`osascript -e '${script}'`, (error) => {
-          if (error) {
-            console.error('[MachineId] Admin restart failed:', error)
-          }
-        })
-        setTimeout(() => app.quit(), 1000)
-        return true
-      }
-
-      case 'linux': {
-        // Linux: 尝试使用 pkexec 或 gksudo
-        const sudoCommands = ['pkexec', 'gksudo', 'kdesudo']
-        for (const cmd of sudoCommands) {
-          try {
-            execSync(`which ${cmd}`, { stdio: 'ignore' })
-            exec(`${cmd} "${appPath}"`, (error) => {
-              if (error) {
-                console.error('[MachineId] Admin restart failed:', error)
-              }
-            })
-            setTimeout(() => app.quit(), 1000)
-            return true
-          } catch {
-            continue
-          }
-        }
-        return false
-      }
-
-      default:
-        return false
+  switch (osType) {
+    case 'windows': {
+      const psPath = findPowerShell() || 'powershell.exe'
+      command = `"${psPath}" -NoProfile -Command "Start-Process -FilePath '${escapedSingleQuotePath}' -Verb RunAs"`
+      break
     }
-  } catch (error) {
-    console.error('请求管理员权限失败:', error)
-    return false
+    case 'macos': {
+      command = `sudo open -n '${escapedSingleQuotePath}'`
+      break
+    }
+    case 'linux': {
+      command = `pkexec '${escapedSingleQuotePath}'`
+      break
+    }
+    default: {
+      command = appPath
+      break
+    }
+  }
+
+  return {
+    requiresAdmin: true,
+    canAutoRestart: false,
+    osType,
+    executablePath: appPath,
+    command,
+    message: '修改机器码需要管理员权限。请使用管理员权限启动本地服务或应用后再操作。'
   }
 }
 
@@ -386,7 +361,7 @@ async function setWindowsMachineId(newMachineId: string): Promise<MachineIdResul
 async function getMacOSMachineId(): Promise<MachineIdResult> {
   try {
     // 优先读取 override 文件（本应用设置的机器码）
-    const overridePath = path.join(app.getPath('userData'), 'machine-id-override')
+    const overridePath = path.join(getUserDataPath(), 'machine-id-override')
     if (fs.existsSync(overridePath)) {
       const overrideId = fs.readFileSync(overridePath, 'utf-8').trim()
       if (overrideId && isValidMachineId(overrideId)) {
@@ -424,7 +399,7 @@ async function getMacOSMachineId(): Promise<MachineIdResult> {
 async function setMacOSMachineId(newMachineId: string): Promise<MachineIdResult> {
   // macOS 的硬件 UUID 无法直接修改
   // 我们写入本应用的 override 文件，并同步到 Kiro IDE 的 machineid 文件
-  const overridePath = path.join(app.getPath('userData'), 'machine-id-override')
+  const overridePath = path.join(getUserDataPath(), 'machine-id-override')
   const kiroMachineIdPath = path.join(process.env.HOME || '', 'Library/Application Support/Kiro/machineid')
 
   try {
@@ -578,7 +553,7 @@ export async function backupMachineIdToFile(
       machineId,
       backupTime: Date.now(),
       osType: getOSType(),
-      appVersion: app.getVersion()
+      appVersion: getAppVersion()
     }
     fs.writeFileSync(filePath, JSON.stringify(backupData, null, 2), 'utf-8')
     return true
@@ -610,18 +585,3 @@ export async function restoreMachineIdFromFile(filePath: string): Promise<Machin
   }
 }
 
-/**
- * 显示需要管理员权限的对话框
- */
-export async function showAdminRequiredDialog(): Promise<boolean> {
-  const result = await dialog.showMessageBox({
-    type: 'warning',
-    title: '需要管理员权限',
-    message: '修改机器码需要管理员权限',
-    detail: '是否以管理员权限重新启动应用程序？',
-    buttons: ['取消', '以管理员身份重启'],
-    defaultId: 1,
-    cancelId: 0
-  })
-  return result.response === 1
-}

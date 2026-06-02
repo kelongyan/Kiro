@@ -1,5 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, globalShortcut } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import * as machineIdModule from './machineId'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -23,73 +22,10 @@ import { registerIPCHandlers as registerRegistrationHandlers } from './registrat
 import { createBackupController } from './services/storage/backup'
 import { fetchWithAppProxy as fetchWithAppProxyService, getFallbackRestApiBase, getRestApiBase, normalizeProxyUrl } from './services/network/proxy-utils'
 import { readKiroSettingsFiles, writeKiroSettingsFile } from './services/kiro/settings-files'
-import {
-  createTray,
-  destroyTray,
-  updateTrayMenu,
-  updateCurrentAccount,
-  updateAccountList,
-  setTrayTooltip,
-  updateTrayLanguage,
-  type TraySettings,
-  defaultTraySettings
-} from './tray'
-
-// ============ 自动更新配置 ============
-autoUpdater.autoDownload = false
-autoUpdater.autoInstallOnAppQuit = true
-
-function setupAutoUpdater(): void {
-  // 检查更新出错
-  autoUpdater.on('error', (error) => {
-    console.error('[AutoUpdater] Error:', error)
-    mainWindow?.webContents.send('update-error', error.message)
-  })
-
-  // 检查更新中
-  autoUpdater.on('checking-for-update', () => {
-    console.log('[AutoUpdater] Checking for update...')
-    mainWindow?.webContents.send('update-checking')
-  })
-
-  // 有可用更新
-  autoUpdater.on('update-available', (info) => {
-    console.log('[AutoUpdater] Update available:', info.version)
-    mainWindow?.webContents.send('update-available', {
-      version: info.version,
-      releaseDate: info.releaseDate,
-      releaseNotes: info.releaseNotes
-    })
-  })
-
-  // 没有可用更新
-  autoUpdater.on('update-not-available', (info) => {
-    console.log('[AutoUpdater] No update available, current:', info.version)
-    mainWindow?.webContents.send('update-not-available', { version: info.version })
-  })
-
-  // 下载进度
-  autoUpdater.on('download-progress', (progress) => {
-    console.log(`[AutoUpdater] Download progress: ${progress.percent.toFixed(1)}%`)
-    mainWindow?.webContents.send('update-download-progress', {
-      percent: progress.percent,
-      bytesPerSecond: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total
-    })
-  })
-
-  // 下载完成
-  autoUpdater.on('update-downloaded', (info) => {
-    console.log('[AutoUpdater] Update downloaded:', info.version)
-    mainWindow?.webContents.send('update-downloaded', {
-      version: info.version,
-      releaseDate: info.releaseDate,
-      releaseNotes: info.releaseNotes
-    })
-  })
-}
-
+import { showOpenFileDialog, showSaveFileDialog } from './services/runtime/dialogs'
+import { openExternalUrl, openFilePath } from './services/runtime/open'
+import { getUserDataPath } from './services/runtime/paths'
+import { publishEvent } from '../server'
 // ============ Kiro API 调用 ============
 const KIRO_API_BASE = 'https://app.kiro.dev/service/KiroWebPortalService/operation'
 // API 类型配置
@@ -242,16 +178,6 @@ function flushStoreWrites(): void {
   pendingStoreWrites.clear()
 }
 
-let trayMenuTimer: ReturnType<typeof setTimeout> | null = null
-
-function debouncedUpdateTrayMenu(): void {
-  if (trayMenuTimer) return
-  trayMenuTimer = setTimeout(() => {
-    trayMenuTimer = null
-    updateTrayMenu()
-  }, 3000)
-}
-
 // ============ Kiro API 反代服务器 ============
 let proxyServer: ProxyServer | null = null
 
@@ -259,7 +185,7 @@ function initProxyServer(): ProxyServer {
   if (proxyServer) return proxyServer
 
   // 确保日志存储已初始化（app.whenReady 中已调用，此处兜底）
-  proxyLogStore.initialize(app.getPath('userData'))
+  proxyLogStore.initialize(getUserDataPath())
 
   // 从 store 加载保存的配置，如果没有则使用默认配置
   const savedConfig = store?.get('proxyConfig') as Partial<ProxyConfig> | undefined
@@ -314,17 +240,17 @@ function initProxyServer(): ProxyServer {
     config,
     {
       onRequest: (info) => {
-        mainWindow?.webContents.send('proxy-request', info)
+        emitAppEvent('proxy-request', info)
       },
       onResponse: (info) => {
-        mainWindow?.webContents.send('proxy-response', info)
+        emitAppEvent('proxy-response', info)
       },
       onError: (error) => {
         console.error('[ProxyServer] Error:', error)
-        mainWindow?.webContents.send('proxy-error', error.message)
+        emitAppEvent('proxy-error', error.message)
       },
       onStatusChange: (running, port) => {
-        mainWindow?.webContents.send('proxy-status-change', { running, port })
+        emitAppEvent('proxy-status-change', { running, port })
       },
       // Token 刷新回调 - 复用已有的刷新逻辑，含账号绑定代理
       onTokenRefresh: async (account) => {
@@ -354,7 +280,7 @@ function initProxyServer(): ProxyServer {
       },
       // 账号更新回调 - 通知渲染进程更新账号数据
       onAccountUpdate: (account) => {
-        mainWindow?.webContents.send('proxy-account-update', {
+        emitAppEvent('proxy-account-update', {
           id: account.id,
           accessToken: account.accessToken,
           refreshToken: account.refreshToken,
@@ -366,7 +292,7 @@ function initProxyServer(): ProxyServer {
       onAccountSuspended: (info) => {
         console.warn(`[ProxyServer] Account suspended: ${info.email || info.accountId} (${info.reason})`)
         // 推送 IPC 事件给前端 store
-        mainWindow?.webContents.send('proxy-account-suspended', {
+        emitAppEvent('proxy-account-suspended', {
           id: info.accountId,
           email: info.email,
           reason: info.reason,
@@ -406,8 +332,6 @@ function initProxyServer(): ProxyServer {
         debouncedStoreSet('proxyTotalRequests', totalRequests)
         debouncedStoreSet('proxySuccessRequests', successRequests)
         debouncedStoreSet('proxyFailedRequests', failedRequests)
-        // 更新托盘菜单（也防抖，避免频繁重建菜单）
-        debouncedUpdateTrayMenu()
       },
       // 账号池为空时懒加载 - 从 store 读取账号数据同步到 pool
       onPoolEmpty: async () => {
@@ -463,7 +387,7 @@ function initProxyServer(): ProxyServer {
   // P1-6 注入 webhook 触发器：让反代关键事件（封号 / 全员配额耗尽 / 限流）能推送通知
   proxyServer.setWebhookTrigger((event, payload) => {
     // 通过 IPC 转发到 renderer，由 useWebhookStore.triggerEvent 实际发送
-    mainWindow?.webContents.send('proxy-webhook-trigger', { event, payload })
+    emitAppEvent('proxy-webhook-trigger', { event, payload })
   })
 
   // 恢复保存的累计 credits
@@ -546,7 +470,7 @@ function openBrowserInPrivateMode(url: string): void {
                   exec(`start firefox -private-window "${url}"`, (err3) => {
                     if (err3) {
                       console.log('[Browser] Fallback to default browser (non-private)')
-                      shell.openExternal(url)
+                      void openExternalUrl(url)
                     }
                   })
                 }
@@ -559,7 +483,7 @@ function openBrowserInPrivateMode(url: string): void {
       exec(command, (err) => {
         if (err) {
           console.log(`[Browser] Failed to open ${defaultBrowser}, fallback to default`)
-          shell.openExternal(url)
+          void openExternalUrl(url)
         }
       })
     } else if (platform === 'darwin') {
@@ -569,7 +493,7 @@ function openBrowserInPrivateMode(url: string): void {
           exec(`open -a Firefox --args -private-window "${url}"`, (err2) => {
             if (err2) {
               console.log('[Browser] Fallback to default browser')
-              shell.openExternal(url)
+              void openExternalUrl(url)
             }
           })
         }
@@ -583,7 +507,7 @@ function openBrowserInPrivateMode(url: string): void {
               exec(`firefox -private-window "${url}"`, (err3) => {
                 if (err3) {
                   console.log('[Browser] Fallback to default browser')
-                  shell.openExternal(url)
+                  void openExternalUrl(url)
                 }
               })
             }
@@ -593,7 +517,7 @@ function openBrowserInPrivateMode(url: string): void {
     }
   } catch (error) {
     console.error('[Browser] Error opening in private mode:', error)
-    shell.openExternal(url)
+    void openExternalUrl(url)
   }
 }
 
@@ -1389,159 +1313,15 @@ async function initStore(): Promise<void> {
 const { createBackup, flushBackupNow } = createBackupController(() => store)
 
 let mainWindow: BrowserWindow | null = null
+let isQuitting = false // 防止 will-quit 保存逻辑重复执行
 
-// ============ 托盘相关变量 ============
-let traySettings: TraySettings = { ...defaultTraySettings }
-let isQuitting = false // 标记是否真正退出应用
-
-// ============ 全局快捷键设置 ============
-let showWindowShortcut = process.platform === 'darwin' ? 'Command+Shift+K' : 'Ctrl+Shift+K'
-
-// 加载快捷键设置
-async function loadShortcutSettings(): Promise<void> {
-  try {
-    await initStore()
-    const saved = store?.get('showWindowShortcut') as string | undefined
-    if (saved) {
-      showWindowShortcut = saved
-    }
-  } catch (error) {
-    console.error('[Shortcut] Failed to load shortcut settings:', error)
-  }
-}
-
-// 保存快捷键设置
-async function saveShortcutSettings(): Promise<void> {
-  try {
-    await initStore()
-    store?.set('showWindowShortcut', showWindowShortcut)
-  } catch (error) {
-    console.error('[Shortcut] Failed to save shortcut settings:', error)
-  }
-}
-
-// 注册显示主窗口的快捷键
-function registerShowWindowShortcut(): void {
-  // 先注销所有已注册的快捷键
-  globalShortcut.unregisterAll()
-  
-  if (!showWindowShortcut) return
-  
-  try {
-    const success = globalShortcut.register(showWindowShortcut, () => {
-      if (mainWindow) {
-        // macOS: 显示窗口时恢复 Dock 图标
-        if (process.platform === 'darwin' && app.dock) {
-          app.dock.show()
-        }
-        if (mainWindow.isMinimized()) mainWindow.restore()
-        mainWindow.show()
-        mainWindow.focus()
-      }
-    })
-    if (success) {
-      console.log(`[Shortcut] Registered: ${showWindowShortcut}`)
-    } else {
-      console.warn(`[Shortcut] Failed to register: ${showWindowShortcut}`)
-    }
-  } catch (error) {
-    console.error('[Shortcut] Error registering shortcut:', error)
-  }
-}
-let currentProxyAccount: { id: string; email: string; idp: string; status: string; subscription?: string; usage?: { usedCredits: number; totalCredits: number; totalRequests: number; successRequests: number; failedRequests: number } } | null = null
-let allAccounts: { id: string; email: string; idp: string; status: string }[] = []
-
-// 加载托盘设置
-async function loadTraySettings(): Promise<void> {
-  try {
-    await initStore()
-    const saved = store?.get('traySettings') as TraySettings | undefined
-    if (saved) {
-      traySettings = { ...defaultTraySettings, ...saved }
-    }
-  } catch (error) {
-    console.error('[Tray] Failed to load tray settings:', error)
-  }
-}
-
-// 保存托盘设置
-async function saveTraySettings(): Promise<void> {
-  try {
-    await initStore()
-    store?.set('traySettings', traySettings)
-  } catch (error) {
-    console.error('[Tray] Failed to save tray settings:', error)
-  }
-}
-
-// 初始化托盘
-function initTray(): void {
-  if (!traySettings.enabled) return
-
-  createTray({
-    onShowWindow: () => {
-      if (mainWindow) {
-        // macOS: 显示窗口时恢复 Dock 图标
-        if (process.platform === 'darwin' && app.dock) {
-          app.dock.show()
-        }
-        if (mainWindow.isMinimized()) {
-          mainWindow.restore()
-        }
-        mainWindow.show()
-        mainWindow.focus()
-      }
-    },
-    onQuit: () => {
-      isQuitting = true
-      app.quit()
-    },
-    onRefreshAccount: async () => {
-      mainWindow?.webContents.send('tray-refresh-account')
-    },
-    onSwitchAccount: async () => {
-      mainWindow?.webContents.send('tray-switch-account')
-    },
-    onToggleProxy: async () => {
-      const server = initProxyServer()
-      if (server.isRunning()) {
-        server.stop()
-      } else {
-        await server.start()
-      }
-      updateTrayMenu()
-    },
-    getProxyStatus: () => {
-      const server = initProxyServer()
-      return {
-        running: server.isRunning(),
-        port: server.getConfig().port
-      }
-    },
-    getCurrentAccount: () => currentProxyAccount,
-    getAccountList: () => allAccounts,
-    getProxyStats: () => {
-      const server = initProxyServer()
-      const stats = server.getStats()
-      return {
-        totalRequests: stats.totalRequests,
-        successRequests: stats.successRequests,
-        failedRequests: stats.failedRequests
-      }
-    },
-    getSessionStats: () => {
-      const server = initProxyServer()
-      return server.getSessionStats()
-    }
-  })
-
-  // 设置初始提示
-  setTrayTooltip(`Kiro 账号管理器 v${app.getVersion()}`)
+function emitAppEvent(channel: string, payload: unknown): void {
+  publishEvent(channel, payload)
+  mainWindow?.webContents.send(channel, payload)
 }
 
 function createWindow(): void {
   // Create the browser window.
-  const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     title: `Kiro 账号管理器 v${app.getVersion()}`,
     width: 1200,   // 刚好容纳 3 列卡片 (340*3 + 16*2 + 边距)
@@ -1551,11 +1331,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     icon,
-    // 自定义 titlebar：mac 保留红绿黄灯 + 隐藏标题栏；win/linux 完全无 frame
-    frame: isMac,
-    titleBarStyle: isMac ? 'hiddenInset' : 'default',
-    trafficLightPosition: isMac ? { x: 14, y: 12 } : undefined,
-    // 不透明窗口（关闭透明 + Mica/Vibrancy 避免桌面元素干扰）
+    frame: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -1563,10 +1339,6 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
-
-  // ============ 自定义 titlebar IPC ============
-  mainWindow.on('maximize', () => mainWindow?.webContents.send('window-maximize-changed', true))
-  mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window-maximize-changed', false))
 
   mainWindow.on('ready-to-show', () => {
     // 设置带版本号的标题（HTML 加载后会覆盖初始标题）
@@ -1666,20 +1438,20 @@ function createWindow(): void {
           console.log('[KProxy] Auto-starting K-Proxy MITM...')
           const service = initKProxyService(savedKProxyConfig, {
             onRequest: (info) => {
-              mainWindow?.webContents.send('kproxy-request', info)
+              emitAppEvent('kproxy-request', info)
             },
             onResponse: (info) => {
-              mainWindow?.webContents.send('kproxy-response', info)
+              emitAppEvent('kproxy-response', info)
             },
             onError: (error) => {
               console.error('[KProxy] Error:', error)
-              mainWindow?.webContents.send('kproxy-error', error.message)
+              emitAppEvent('kproxy-error', error.message)
             },
             onStatusChange: (running, port) => {
-              mainWindow?.webContents.send('kproxy-status-change', { running, port })
+              emitAppEvent('kproxy-status-change', { running, port })
             },
             onMitmIntercept: (host, modified) => {
-              mainWindow?.webContents.send('kproxy-mitm', { host, modified })
+              emitAppEvent('kproxy-mitm', { host, modified })
             }
           })
           await service.initialize()
@@ -1692,28 +1464,7 @@ function createWindow(): void {
     }, 1000)
   })
 
-  mainWindow.on('close', (event) => {
-    // 托盘最小化逻辑 - 必须同步检查并调用 preventDefault
-    if (traySettings.enabled && !isQuitting) {
-      if (traySettings.closeAction === 'minimize') {
-        // 直接最小化到托盘
-        event.preventDefault()
-        mainWindow?.hide()
-        // macOS: 隐藏窗口时隐藏 Dock 图标
-        if (process.platform === 'darwin' && app.dock) {
-          app.dock.hide()
-        }
-        return
-      } else if (traySettings.closeAction === 'ask' && mainWindow) {
-        // 询问用户 - 先阻止关闭，再异步处理
-        event.preventDefault()
-        // 通知渲染进程显示自定义对话框
-        mainWindow.webContents.send('show-close-confirm-dialog')
-        return
-      }
-      // closeAction === 'quit' 时继续关闭流程
-    }
-
+  mainWindow.on('close', () => {
     // 窗口关闭前保存数据（同步保存，不等待备份）
     if (lastSavedData && store) {
       try {
@@ -1737,7 +1488,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    void openExternalUrl(details.url)
     return { action: 'deny' }
   })
 
@@ -1794,9 +1545,9 @@ function handleProtocolUrl(url: string): void {
       const code = urlObj.searchParams.get('code')
       const state = urlObj.searchParams.get('state')
 
-      if (code && state && mainWindow) {
-        mainWindow.webContents.send('auth-callback', { code, state })
-        mainWindow.focus()
+      if (code && state) {
+        emitAppEvent('auth-callback', { code, state })
+        mainWindow?.focus()
       }
     }
   } catch (error) {
@@ -1809,24 +1560,11 @@ function handleProtocolUrl(url: string): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
   // 初始化日志系统（尽早拦截，确保所有 console 输出都进入日志存储）
-  proxyLogStore.initialize(app.getPath('userData'))
+  proxyLogStore.initialize(getUserDataPath())
   interceptConsole()
 
   // 注册自定义协议
   registerProtocol()
-
-  // 加载托盘设置并初始化托盘
-  await loadTraySettings()
-  initTray()
-
-  // 初始化自动更新（仅生产环境）
-  if (!is.dev) {
-    setupAutoUpdater()
-    // 启动后延迟检查更新
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch(console.error)
-    }, 3000)
-  }
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.kiro.account-manager')
@@ -1844,246 +1582,17 @@ app.whenReady().then(async () => {
       if (usePrivateMode) {
         openBrowserInPrivateMode(url)
       } else {
-        shell.openExternal(url)
+        void openExternalUrl(url)
       }
     }
   })
 
   // ============ 注册功能 IPC ============
-  registerRegistrationHandlers(() => mainWindow)
-
-  // ============ 托盘相关 IPC ============
-
-  // IPC: 获取托盘设置
-  ipcMain.handle('get-tray-settings', () => {
-    return traySettings
-  })
-
-  // ============ 自定义 titlebar IPC ============
-  ipcMain.on('window-minimize', () => mainWindow?.minimize())
-  ipcMain.on('window-maximize-toggle', () => {
-    if (!mainWindow) return
-    if (mainWindow.isMaximized()) mainWindow.unmaximize()
-    else mainWindow.maximize()
-  })
-  ipcMain.on('window-close', () => mainWindow?.close())
-  ipcMain.handle('window-is-maximized', () => !!mainWindow?.isMaximized())
-  ipcMain.handle('window-get-platform', () => process.platform)
-
-  // IPC: 获取显示主窗口快捷键
-  ipcMain.handle('get-show-window-shortcut', () => {
-    return showWindowShortcut
-  })
-
-  // IPC: 设置显示主窗口快捷键
-  ipcMain.handle('set-show-window-shortcut', async (_event, shortcut: string) => {
-    try {
-      showWindowShortcut = shortcut
-      await saveShortcutSettings()
-      registerShowWindowShortcut()
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: String(error) }
-    }
-  })
-
-  // IPC: 保存托盘设置
-  ipcMain.handle('save-tray-settings', async (_event, settings: Partial<TraySettings>) => {
-    try {
-      traySettings = { ...traySettings, ...settings }
-      await saveTraySettings()
-      
-      // 根据设置启用/禁用托盘
-      if (settings.enabled !== undefined) {
-        if (settings.enabled) {
-          initTray()
-        } else {
-          destroyTray()
-        }
-      }
-      
-      return { success: true }
-    } catch (error) {
-      console.error('[Tray] Failed to save settings:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
-    }
-  })
-
-  // IPC: 更新托盘账户信息（从渲染进程调用）
-  ipcMain.on('update-tray-account', (_event, account: typeof currentProxyAccount) => {
-    currentProxyAccount = account
-    updateCurrentAccount(account)
-    
-    // 更新托盘提示
-    if (account) {
-      setTrayTooltip(`Kiro 账号管理器\n当前账户: ${account.email}`)
-    } else {
-      setTrayTooltip(`Kiro 账号管理器 v${app.getVersion()}`)
-    }
-  })
-
-  // IPC: 更新托盘账户列表（从渲染进程调用）
-  ipcMain.on('update-tray-account-list', (_event, accounts: typeof allAccounts) => {
-    allAccounts = accounts
-    updateAccountList(accounts)
-  })
-
-  // IPC: 刷新托盘菜单
-  ipcMain.on('refresh-tray-menu', () => {
-    updateTrayMenu()
-  })
-
-  // IPC: 更新托盘语言
-  ipcMain.on('update-tray-language', (_event, language: 'en' | 'zh') => {
-    updateTrayLanguage(language)
-  })
-
-  // IPC: 关闭确认对话框响应
-  ipcMain.on('close-confirm-response', (_event, action: 'minimize' | 'quit' | 'cancel', rememberChoice: boolean) => {
-    if (action === 'minimize') {
-      mainWindow?.hide()
-      // macOS: 隐藏窗口时隐藏 Dock 图标
-      if (process.platform === 'darwin' && app.dock) {
-        app.dock.hide()
-      }
-    } else if (action === 'quit') {
-      // 如果用户选择记住选择
-      if (rememberChoice) {
-        traySettings.closeAction = 'quit'
-        saveTraySettings()
-      }
-      isQuitting = true
-      app.quit()
-    }
-    // cancel 时不做任何操作
-    
-    // 如果用户选择记住"最小化"选择
-    if (action === 'minimize' && rememberChoice) {
-      traySettings.closeAction = 'minimize'
-      saveTraySettings()
-    }
-  })
+  registerRegistrationHandlers(emitAppEvent)
 
   // IPC: 获取应用版本
   ipcMain.handle('get-app-version', () => {
     return app.getVersion()
-  })
-
-  // IPC: 检查更新
-  ipcMain.handle('check-for-updates', async () => {
-    if (is.dev) {
-      return { hasUpdate: false, message: '开发环境不支持更新检查' }
-    }
-    try {
-      const result = await autoUpdater.checkForUpdates()
-      return {
-        hasUpdate: !!result?.updateInfo,
-        version: result?.updateInfo?.version,
-        releaseDate: result?.updateInfo?.releaseDate
-      }
-    } catch (error) {
-      console.error('[AutoUpdater] Check failed:', error)
-      return { hasUpdate: false, error: error instanceof Error ? error.message : 'Unknown error' }
-    }
-  })
-
-  // IPC: 下载更新
-  ipcMain.handle('download-update', async () => {
-    if (is.dev) {
-      return { success: false, message: '开发环境不支持更新' }
-    }
-    try {
-      await autoUpdater.downloadUpdate()
-      return { success: true }
-    } catch (error) {
-      console.error('[AutoUpdater] Download failed:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
-    }
-  })
-
-  // IPC: 安装更新并重启
-  ipcMain.handle('install-update', () => {
-    autoUpdater.quitAndInstall(false, true)
-  })
-
-  // IPC: 手动检查更新（使用 GitHub API，用于 AboutPage）
-  const GITHUB_REPO = 'chaogei/Kiro-account-manager'
-  const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
-  
-  ipcMain.handle('check-for-updates-manual', async () => {
-    try {
-      console.log('[Update] Manual check via GitHub API...')
-      const currentVersion = app.getVersion()
-      
-      const response = await fetchWithAppProxy(GITHUB_API_URL, {
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Kiro-Account-Manager'
-        }
-      })
-      
-      if (!response.ok) {
-        if (response.status === 403) {
-          throw new Error('GitHub API 请求次数超限，请稍后再试')
-        } else if (response.status === 404) {
-          throw new Error('未找到发布版本')
-        }
-        throw new Error(`GitHub API 错误: ${response.status}`)
-      }
-      
-      const release = await response.json() as {
-        tag_name: string
-        name: string
-        body: string
-        html_url: string
-        published_at: string
-        assets: Array<{
-          name: string
-          browser_download_url: string
-          size: number
-        }>
-      }
-      
-      const latestVersion = release.tag_name.replace(/^v/, '')
-      
-      // 比较版本号
-      const compareVersions = (v1: string, v2: string): number => {
-        const parts1 = v1.split('.').map(Number)
-        const parts2 = v2.split('.').map(Number)
-        for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
-          const p1 = parts1[i] || 0
-          const p2 = parts2[i] || 0
-          if (p1 > p2) return 1
-          if (p1 < p2) return -1
-        }
-        return 0
-      }
-      
-      const hasUpdate = compareVersions(latestVersion, currentVersion) > 0
-      
-      console.log(`[Update] Current: ${currentVersion}, Latest: ${latestVersion}, HasUpdate: ${hasUpdate}`)
-      
-      return {
-        hasUpdate,
-        currentVersion,
-        latestVersion,
-        releaseNotes: release.body || '',
-        releaseName: release.name || `v${latestVersion}`,
-        releaseUrl: release.html_url,
-        publishedAt: release.published_at,
-        assets: release.assets.map(a => ({
-          name: a.name,
-          downloadUrl: a.browser_download_url,
-          size: a.size
-        }))
-      }
-    } catch (error) {
-      console.error('[Update] Manual check failed:', error)
-      return {
-        hasUpdate: false,
-        error: error instanceof Error ? error.message : '检查更新失败'
-      }
-    }
   })
 
   // ============ 一键诊断 ============
@@ -2865,7 +2374,7 @@ app.whenReady().then(async () => {
                 failed++
                 completed++
                 // 通知渲染进程刷新失败
-                mainWindow?.webContents.send('background-refresh-result', {
+                emitAppEvent('background-refresh-result', {
                   id: account.id,
                   success: false,
                   error: refreshResult.error
@@ -3069,7 +2578,7 @@ app.whenReady().then(async () => {
             completed++
 
             // 通知渲染进程更新账号
-            mainWindow?.webContents.send('background-refresh-result', {
+            emitAppEvent('background-refresh-result', {
               id: account.id,
               success: true,
               data: {
@@ -3086,7 +2595,7 @@ app.whenReady().then(async () => {
           } catch (e) {
             failed++
             completed++
-            mainWindow?.webContents.send('background-refresh-result', {
+            emitAppEvent('background-refresh-result', {
               id: account.id,
               success: false,
               error: e instanceof Error ? e.message : 'Unknown error'
@@ -3096,7 +2605,7 @@ app.whenReady().then(async () => {
       )
 
       // 通知进度
-      mainWindow?.webContents.send('background-refresh-progress', {
+      emitAppEvent('background-refresh-progress', {
         completed,
         total: accounts.length,
         success,
@@ -3146,7 +2655,7 @@ app.whenReady().then(async () => {
             if (!accessToken) {
               failed++
               completed++
-              mainWindow?.webContents.send('background-check-result', {
+              emitAppEvent('background-check-result', {
                 id: account.id,
                 success: false,
                 error: '缺少 accessToken'
@@ -3399,7 +2908,7 @@ app.whenReady().then(async () => {
             completed++
 
             // 通知渲染进程更新账号
-            mainWindow?.webContents.send('background-check-result', {
+            emitAppEvent('background-check-result', {
               id: account.id,
               success: true,
               data: {
@@ -3413,7 +2922,7 @@ app.whenReady().then(async () => {
           } catch (e) {
             failed++
             completed++
-            mainWindow?.webContents.send('background-check-result', {
+            emitAppEvent('background-check-result', {
               id: account.id,
               success: false,
               error: e instanceof Error ? e.message : 'Unknown error'
@@ -3423,7 +2932,7 @@ app.whenReady().then(async () => {
       )
 
       // 通知进度
-      mainWindow?.webContents.send('background-check-progress', {
+      emitAppEvent('background-check-progress', {
         completed,
         total: accounts.length,
         success,
@@ -3443,7 +2952,7 @@ app.whenReady().then(async () => {
   // IPC: 导出到文件
   ipcMain.handle('export-to-file', async (_event, data: string, filename: string) => {
     try {
-      const result = await dialog.showSaveDialog(mainWindow!, {
+      const result = await showSaveFileDialog(mainWindow, {
         title: '导出账号数据',
         defaultPath: filename,
         filters: [{ name: 'JSON Files', extensions: ['json'] }]
@@ -3463,7 +2972,7 @@ app.whenReady().then(async () => {
   // IPC: 从文件导入
   ipcMain.handle('import-from-file', async () => {
     try {
-      const result = await dialog.showOpenDialog(mainWindow!, {
+      const result = await showOpenFileDialog(mainWindow, {
         title: '导入账号数据',
         filters: [
           { name: '所有支持的格式', extensions: ['json', 'csv', 'txt'] },
@@ -4596,7 +4105,7 @@ app.whenReady().then(async () => {
     if (usePrivateMode) {
       openBrowserInPrivateMode(urlStr)
     } else {
-      shell.openExternal(urlStr)
+      await openExternalUrl(urlStr)
     }
 
     return {
@@ -4781,7 +4290,7 @@ app.whenReady().then(async () => {
         fs.writeFileSync(configPath, JSON.stringify({ mcpServers: {} }, null, 2))
       }
       
-      shell.openPath(configPath)
+      await openFilePath(configPath)
       return { success: true }
     } catch (error) {
       console.error('[KiroSettings] Failed to open MCP config:', error)
@@ -4803,7 +4312,7 @@ app.whenReady().then(async () => {
         fs.mkdirSync(steeringPath, { recursive: true })
       }
       
-      shell.openPath(steeringPath)
+      await openFilePath(steeringPath)
       return { success: true }
     } catch (error) {
       console.error('[KiroSettings] Failed to open steering folder:', error)
@@ -4833,7 +4342,7 @@ app.whenReady().then(async () => {
         fs.writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 4))
       }
       
-      shell.openPath(settingsPath)
+      await openFilePath(settingsPath)
       return { success: true }
     } catch (error) {
       console.error('[KiroSettings] Failed to open settings file:', error)
@@ -4849,7 +4358,7 @@ app.whenReady().then(async () => {
       const homeDir = os.homedir()
       const filePath = path.join(homeDir, '.kiro', 'steering', filename)
       
-      shell.openPath(filePath)
+      await openFilePath(filePath)
       return { success: true }
     } catch (error) {
       console.error('[KiroSettings] Failed to open steering file:', error)
@@ -4931,7 +4440,7 @@ app.whenReady().then(async () => {
       console.log('[KiroSettings] Created default rules.md at:', rulesPath)
       
       // 打开文件
-      shell.openPath(rulesPath)
+      await openFilePath(rulesPath)
       
       return { success: true }
     } catch (error) {
@@ -4995,8 +4504,6 @@ app.whenReady().then(async () => {
         server.updateConfig(config)
       }
       await server.start()
-      // 更新托盘菜单状态
-      updateTrayMenu()
       return { success: true, port: server.getConfig().port }
     } catch (error) {
       console.error('[ProxyServer] Start failed:', error)
@@ -5010,8 +4517,6 @@ app.whenReady().then(async () => {
       if (proxyServer) {
         await proxyServer.stop()
       }
-      // 更新托盘菜单状态
-      updateTrayMenu()
       return { success: true }
     } catch (error) {
       console.error('[ProxyServer] Stop failed:', error)
@@ -5560,7 +5065,7 @@ app.whenReady().then(async () => {
   })
 
   // 代理日志持久化（请求日志，与详细日志分开存储）
-  const getProxyLogsPath = (): string => join(app.getPath('userData'), 'proxy-request-logs.json')
+  const getProxyLogsPath = (): string => join(getUserDataPath(), 'proxy-request-logs.json')
   const MAX_LOGS = 100
 
   // IPC: 保存代理日志
@@ -5642,20 +5147,20 @@ app.whenReady().then(async () => {
       const savedConfig = store?.get('kproxyConfig') as Partial<KProxyConfig> | undefined
       const service = initKProxyService(savedConfig || {}, {
         onRequest: (info) => {
-          mainWindow?.webContents.send('kproxy-request', info)
+          emitAppEvent('kproxy-request', info)
         },
         onResponse: (info) => {
-          mainWindow?.webContents.send('kproxy-response', info)
+          emitAppEvent('kproxy-response', info)
         },
         onError: (error) => {
           console.error('[KProxy] Error:', error)
-          mainWindow?.webContents.send('kproxy-error', error.message)
+          emitAppEvent('kproxy-error', error.message)
         },
         onStatusChange: (running, port) => {
-          mainWindow?.webContents.send('kproxy-status-change', { running, port })
+          emitAppEvent('kproxy-status-change', { running, port })
         },
         onMitmIntercept: (host, modified) => {
-          mainWindow?.webContents.send('kproxy-mitm', { host, modified })
+          emitAppEvent('kproxy-mitm', { host, modified })
         }
       })
       const caInfo = await service.initialize()
@@ -5842,7 +5347,7 @@ app.whenReady().then(async () => {
       
       let targetPath = exportPath
       if (!targetPath) {
-        const result = await dialog.showSaveDialog({
+        const result = await showSaveFileDialog(mainWindow, {
           title: 'Export CA Certificate',
           defaultPath: 'kproxy-ca.crt',
           filters: [{ name: 'Certificate', extensions: ['crt', 'pem'] }]
@@ -6103,10 +5608,9 @@ app.whenReady().then(async () => {
     const result = await machineIdModule.setMachineId(newMachineId)
     
     if (!result.success && result.requiresAdmin) {
-      // 弹窗询问用户是否以管理员权限重启
-      const shouldRestart = await machineIdModule.showAdminRequiredDialog()
-      if (shouldRestart) {
-        await machineIdModule.requestAdminRestart()
+      return {
+        ...result,
+        adminRestart: machineIdModule.getAdminRestartInfo()
       }
     }
     
@@ -6125,16 +5629,12 @@ app.whenReady().then(async () => {
 
   // IPC: 请求管理员权限重启
   ipcMain.handle('machine-id:request-admin-restart', async () => {
-    const shouldRestart = await machineIdModule.showAdminRequiredDialog()
-    if (shouldRestart) {
-      return await machineIdModule.requestAdminRestart()
-    }
-    return false
+    return await machineIdModule.requestAdminRestart()
   })
 
   // IPC: 备份机器码到文件
   ipcMain.handle('machine-id:backup-to-file', async (_event, machineId: string) => {
-    const result = await dialog.showSaveDialog(mainWindow!, {
+    const result = await showSaveFileDialog(mainWindow, {
       title: '备份机器码',
       defaultPath: 'machine-id-backup.json',
       filters: [{ name: 'JSON', extensions: ['json'] }]
@@ -6149,7 +5649,7 @@ app.whenReady().then(async () => {
 
   // IPC: 从文件恢复机器码
   ipcMain.handle('machine-id:restore-from-file', async () => {
-    const result = await dialog.showOpenDialog(mainWindow!, {
+    const result = await showOpenFileDialog(mainWindow, {
       title: '恢复机器码',
       filters: [{ name: 'JSON', extensions: ['json'] }],
       properties: ['openFile']
@@ -6179,17 +5679,15 @@ app.whenReady().then(async () => {
 
         if (error) {
           console.log('[Login] Auth callback error:', error)
-          if (mainWindow) {
-            mainWindow.webContents.send('social-auth-callback', { error })
-            mainWindow.focus()
-          }
+          emitAppEvent('social-auth-callback', { error })
+          mainWindow?.focus()
           return
         }
 
-        if (code && state && mainWindow) {
+        if (code && state) {
           console.log('[Login] Auth callback received, code:', code.substring(0, 20) + '...')
-          mainWindow.webContents.send('social-auth-callback', { code, state })
-          mainWindow.focus()
+          emitAppEvent('social-auth-callback', { code, state })
+          mainWindow?.focus()
         }
         return
       }
@@ -6219,9 +5717,6 @@ app.whenReady().then(async () => {
     }
   })
 
-  // 加载并注册全局快捷键
-  await loadShortcutSettings()
-  registerShowWindowShortcut()
 })
 
 // Windows/Linux: 处理第二个实例和协议 URL

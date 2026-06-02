@@ -16,6 +16,7 @@ import {
   parseOutlookLines, getInboxCount, waitForOTP
 } from './email-service'
 import { getSystemProxy, safeCreateProxyAgent } from '../proxy/systemProxy'
+import { getUserDataPath } from '../services/runtime/paths'
 
 export type LogFn = (message: string) => void
 
@@ -147,7 +148,6 @@ export class Registrar {
     const os = require('os')
     const path = require('path')
     const fs = require('fs')
-    const { app } = require('electron')
 
     const platform = os.platform()
     const arch = os.arch()
@@ -161,7 +161,7 @@ export class Registrar {
     }
 
     // 1. userData 永久目录（首选）
-    const userDataDir = app.getPath('userData')
+    const userDataDir = getUserDataPath()
     const tlsClientDir = path.join(userDataDir, 'tls-client')
     const finalPath = path.join(tlsClientDir, filename)
 
