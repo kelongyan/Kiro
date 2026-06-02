@@ -16,11 +16,17 @@ interface SelectProps {
   className?: string
 }
 
-export function Select({ value, options, onChange, placeholder = '请选择', className }: SelectProps) {
+export function Select({
+  value,
+  options,
+  onChange,
+  placeholder = '请选择',
+  className
+}: SelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  const selectedOption = options.find(opt => opt.value === value)
+  const selectedOption = options.find((opt) => opt.value === value)
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -48,10 +54,12 @@ export function Select({ value, options, onChange, placeholder = '请选择', cl
         <span className={cn(!selectedOption && 'text-muted-foreground')}>
           {selectedOption?.label || placeholder}
         </span>
-        <ChevronDown className={cn(
-          'h-4 w-4 text-muted-foreground transition-transform duration-200',
-          isOpen && 'rotate-180'
-        )} />
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 text-muted-foreground transition-transform duration-200',
+            isOpen && 'rotate-180'
+          )}
+        />
       </button>
 
       {/* Dropdown */}
@@ -72,19 +80,14 @@ export function Select({ value, options, onChange, placeholder = '请选择', cl
               )}
             >
               <div>
-                <p className={cn(
-                  'font-medium',
-                  option.value === value && 'text-primary'
-                )}>
+                <p className={cn('font-medium', option.value === value && 'text-primary')}>
                   {option.label}
                 </p>
                 {option.description && (
                   <p className="text-xs text-muted-foreground mt-0.5">{option.description}</p>
                 )}
               </div>
-              {option.value === value && (
-                <Check className="h-4 w-4 text-primary shrink-0" />
-              )}
+              {option.value === value && <Check className="h-4 w-4 text-primary shrink-0" />}
             </button>
           ))}
         </div>

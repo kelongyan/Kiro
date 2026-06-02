@@ -25,13 +25,13 @@ export interface WebhookEntry {
 }
 
 export type WebhookEvent =
-  | 'batch-completed'      // 批量任务完成
-  | 'batch-error'          // 批量任务严重错误
-  | 'risk-warning'         // 风控警告触发
-  | 'account-banned'       // 账号被封禁
-  | 'register-success'     // 单账号注册成功
-  | 'register-failed'      // 单账号注册失败
-  | 'token-expired'        // Token 过期/刷新失败
+  | 'batch-completed' // 批量任务完成
+  | 'batch-error' // 批量任务严重错误
+  | 'risk-warning' // 风控警告触发
+  | 'account-banned' // 账号被封禁
+  | 'register-success' // 单账号注册成功
+  | 'register-failed' // 单账号注册失败
+  | 'token-expired' // Token 过期/刷新失败
 
 export const ALL_WEBHOOK_EVENTS: { value: WebhookEvent; label: string }[] = [
   { value: 'batch-completed', label: '批量任务完成' },
@@ -122,8 +122,9 @@ export const useWebhookStore = create<WebhooksStore>()((set, get) => ({
   },
 
   triggerEvent: async (event, payload) => {
-    const webhooks = Array.from(get().webhooks.values())
-      .filter((w) => w.enabled && w.events.includes(event))
+    const webhooks = Array.from(get().webhooks.values()).filter(
+      (w) => w.enabled && w.events.includes(event)
+    )
     if (webhooks.length === 0) return
     await Promise.allSettled(webhooks.map((w) => sendWebhook(w, payload)))
   },
@@ -172,9 +173,9 @@ export const useWebhookStore = create<WebhooksStore>()((set, get) => ({
 
 /** C9: 每个 webhook 的最近发送时间戳队列（用于本地速率限制） */
 const sendTimestamps = new Map<string, number[]>()
-const MAX_PER_MINUTE = 20  // 每个 webhook 最多每分钟 20 条
+const MAX_PER_MINUTE = 20 // 每个 webhook 最多每分钟 20 条
 const RETRY_COUNT = 3
-const RETRY_DELAY_BASE_MS = 1500  // 指数退避基数
+const RETRY_DELAY_BASE_MS = 1500 // 指数退避基数
 
 /**
  * 检查并记录速率：超过阈值时返回 false，调用方应跳过本次发送
@@ -200,14 +201,14 @@ function checkAndRecordRate(webhookId: string): boolean {
 async function sendWebhook(webhook: WebhookEntry, payload: WebhookMessage): Promise<void> {
   // C9: 速率限制
   if (!checkAndRecordRate(webhook.id)) {
-    console.warn(`[Webhook] ${webhook.kind} ${webhook.label || webhook.id} rate limit exceeded (>${MAX_PER_MINUTE}/min), drop`)
+    console.warn(
+      `[Webhook] ${webhook.kind} ${webhook.label || webhook.id} rate limit exceeded (>${MAX_PER_MINUTE}/min), drop`
+    )
     return
   }
 
   const body = buildWebhookBody(webhook, payload)
-  const url = webhook.kind === 'telegram'
-    ? buildTelegramUrl(webhook)
-    : webhook.url
+  const url = webhook.kind === 'telegram' ? buildTelegramUrl(webhook) : webhook.url
 
   // C9: 重试逻辑（指数退避）
   let lastError: unknown
@@ -215,7 +216,9 @@ async function sendWebhook(webhook: WebhookEntry, payload: WebhookMessage): Prom
     if (attempt > 0) {
       const delay = RETRY_DELAY_BASE_MS * Math.pow(2, attempt - 1)
       await new Promise((resolve) => setTimeout(resolve, delay))
-      console.log(`[Webhook] Retry ${attempt}/${RETRY_COUNT} for ${webhook.kind} ${webhook.label || webhook.id}`)
+      console.log(
+        `[Webhook] Retry ${attempt}/${RETRY_COUNT} for ${webhook.kind} ${webhook.label || webhook.id}`
+      )
     }
     try {
       const controller = new AbortController()
@@ -229,13 +232,17 @@ async function sendWebhook(webhook: WebhookEntry, payload: WebhookMessage): Prom
       clearTimeout(timer)
       if (resp.ok) {
         if (attempt > 0) {
-          console.log(`[Webhook] ${webhook.kind} ${webhook.label || webhook.id} succeeded on retry ${attempt}`)
+          console.log(
+            `[Webhook] ${webhook.kind} ${webhook.label || webhook.id} succeeded on retry ${attempt}`
+          )
         }
         return
       }
       // 4xx 客户端错误（除 408/429）不重试
       if (resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429) {
-        console.warn(`[Webhook] ${webhook.kind} ${webhook.label || webhook.id} HTTP ${resp.status} (no retry)`)
+        console.warn(
+          `[Webhook] ${webhook.kind} ${webhook.label || webhook.id} HTTP ${resp.status} (no retry)`
+        )
         return
       }
       lastError = new Error(`HTTP ${resp.status}`)
@@ -243,21 +250,32 @@ async function sendWebhook(webhook: WebhookEntry, payload: WebhookMessage): Prom
       lastError = err
     }
   }
-  console.warn(`[Webhook] ${webhook.kind} ${webhook.label || webhook.id} failed after ${RETRY_COUNT} retries:`, lastError)
+  console.warn(
+    `[Webhook] ${webhook.kind} ${webhook.label || webhook.id} failed after ${RETRY_COUNT} retries:`,
+    lastError
+  )
 }
 
 function buildTelegramUrl(webhook: WebhookEntry): string {
   // Telegram 的 URL 直接是 https://api.telegram.org/bot<token>/sendMessage
-  return webhook.url.endsWith('/sendMessage') ? webhook.url : `${webhook.url.replace(/\/$/, '')}/sendMessage`
+  return webhook.url.endsWith('/sendMessage')
+    ? webhook.url
+    : `${webhook.url.replace(/\/$/, '')}/sendMessage`
 }
 
 function buildWebhookBody(webhook: WebhookEntry, payload: WebhookMessage): unknown {
   const icon = ({ info: 'ℹ️', warn: '⚠️', error: '❌', success: '✅' } as const)[payload.level]
   const fieldsText = payload.fields
-    ? '\n' + Object.entries(payload.fields).map(([k, v]) => `**${k}**: ${v}`).join('\n')
+    ? '\n' +
+      Object.entries(payload.fields)
+        .map(([k, v]) => `**${k}**: ${v}`)
+        .join('\n')
     : ''
   const plainFields = payload.fields
-    ? '\n' + Object.entries(payload.fields).map(([k, v]) => `${k}: ${v}`).join('\n')
+    ? '\n' +
+      Object.entries(payload.fields)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\n')
     : ''
   const fullText = `${icon} ${payload.title}\n\n${payload.message}${plainFields}`
 
@@ -295,18 +313,28 @@ function buildWebhookBody(webhook: WebhookEntry, payload: WebhookMessage): unkno
       // Discord webhook
       return {
         username: 'Kiro Account Manager',
-        embeds: [{
-          title: `${icon} ${payload.title}`,
-          description: payload.message,
-          color: payload.level === 'error' ? 0xff0000
-            : payload.level === 'warn' ? 0xffaa00
-            : payload.level === 'success' ? 0x00ff00
-            : 0x4a9eff,
-          fields: payload.fields
-            ? Object.entries(payload.fields).map(([name, value]) => ({ name, value: String(value), inline: true }))
-            : undefined,
-          timestamp: new Date().toISOString()
-        }]
+        embeds: [
+          {
+            title: `${icon} ${payload.title}`,
+            description: payload.message,
+            color:
+              payload.level === 'error'
+                ? 0xff0000
+                : payload.level === 'warn'
+                  ? 0xffaa00
+                  : payload.level === 'success'
+                    ? 0x00ff00
+                    : 0x4a9eff,
+            fields: payload.fields
+              ? Object.entries(payload.fields).map(([name, value]) => ({
+                  name,
+                  value: String(value),
+                  inline: true
+                }))
+              : undefined,
+            timestamp: new Date().toISOString()
+          }
+        ]
       }
     case 'custom':
     default: {
@@ -335,5 +363,10 @@ function buildWebhookBody(webhook: WebhookEntry, payload: WebhookMessage): unkno
 }
 
 function escapeJsonString(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')
 }

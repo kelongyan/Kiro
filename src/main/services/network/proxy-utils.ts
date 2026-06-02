@@ -1,4 +1,8 @@
-import { fetch as undiciFetch, type Dispatcher, type RequestInit as UndiciRequestInit } from 'undici'
+import {
+  fetch as undiciFetch,
+  type Dispatcher,
+  type RequestInit as UndiciRequestInit
+} from 'undici'
 
 export const KIRO_REST_API_ENDPOINTS: Record<string, string> = {
   'us-east-1': 'https://q.us-east-1.amazonaws.com',
@@ -38,13 +42,19 @@ export async function fetchWithAppProxy(
   if (overrideProxyUrl) {
     const accountAgent = safeCreateProxyAgent(overrideProxyUrl)
     if (accountAgent) {
-      return await undiciFetch(url, { ...options, dispatcher: accountAgent } as UndiciRequestInit) as unknown as Response
+      return (await undiciFetch(url, {
+        ...options,
+        dispatcher: accountAgent
+      } as UndiciRequestInit)) as unknown as Response
     }
   }
 
   const agent = getNetworkAgent()
   if (agent) {
-    return await undiciFetch(url, { ...options, dispatcher: agent } as UndiciRequestInit) as unknown as Response
+    return (await undiciFetch(url, {
+      ...options,
+      dispatcher: agent
+    } as UndiciRequestInit)) as unknown as Response
   }
 
   return await fetch(url, options)

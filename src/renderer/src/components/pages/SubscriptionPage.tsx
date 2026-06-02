@@ -2,16 +2,16 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useAccountsStore } from '@/store/accounts'
 import { Button, Card, CardContent } from '../ui'
-import { 
-  CreditCard, 
-  ExternalLink, 
-  Copy, 
-  Download, 
-  Loader2, 
-  CheckCircle, 
-  XCircle, 
-  CheckSquare, 
-  Square, 
+import {
+  CreditCard,
+  ExternalLink,
+  Copy,
+  Download,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  CheckSquare,
+  Square,
   Minus,
   RefreshCw,
   Trash2,
@@ -22,33 +22,64 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/hooks/useTranslation'
+import {
+  getSubscriptionLinks,
+  setSubscriptionLinks,
+  subscribeSubscriptionLinks,
+  type SubscriptionLink
+} from './subscription-links'
 
 /**
  * 订阅升级前预检：从一个账号视角判断它是否可参与批量升级
  * 返回 { eligible: bool, reason?: string }
  */
-type EligibilityReason = 'ok' | 'no-token' | 'already-pro' | 'banned' | 'cant-upgrade' | 'unknown-status'
-function checkUpgradeEligibility(account: ReturnType<typeof useAccountsStore.getState>['accounts'] extends Map<string, infer T> ? T : never): { eligible: boolean; reason: EligibilityReason; detail?: string } {
+type EligibilityReason =
+  | 'ok'
+  | 'no-token'
+  | 'already-pro'
+  | 'banned'
+  | 'cant-upgrade'
+  | 'unknown-status'
+function checkUpgradeEligibility(
+  account: ReturnType<typeof useAccountsStore.getState>['accounts'] extends Map<string, infer T>
+    ? T
+    : never
+): { eligible: boolean; reason: EligibilityReason; detail?: string } {
   if (!account.credentials?.accessToken) return { eligible: false, reason: 'no-token' }
 
   const type = (account.subscription?.type || '').toUpperCase()
   const title = (account.subscription?.title || '').toUpperCase()
   const isFreeTier = type.includes('FREE') || title.includes('FREE') || (!type && !title)
-  const isAlreadyPaid = type.includes('PRO') || type.includes('ENTERPRISE') || type.includes('TEAMS')
-    || title.includes('PRO') || title.includes('ENTERPRISE') || title.includes('TEAMS')
+  const isAlreadyPaid =
+    type.includes('PRO') ||
+    type.includes('ENTERPRISE') ||
+    type.includes('TEAMS') ||
+    title.includes('PRO') ||
+    title.includes('ENTERPRISE') ||
+    title.includes('TEAMS')
 
   if (isAlreadyPaid) {
-    return { eligible: false, reason: 'already-pro', detail: account.subscription?.title || account.subscription?.type }
+    return {
+      eligible: false,
+      reason: 'already-pro',
+      detail: account.subscription?.title || account.subscription?.type
+    }
   }
   if (!isFreeTier) {
-    return { eligible: false, reason: 'unknown-status', detail: account.subscription?.title || account.subscription?.type || '未检测' }
+    return {
+      eligible: false,
+      reason: 'unknown-status',
+      detail: account.subscription?.title || account.subscription?.type || '未检测'
+    }
   }
 
   // 封禁检测
   const lastError = (account.lastError || '').toLowerCase()
-  const isBanned = account.status === 'error' && (
-    lastError.includes('suspended') || lastError.includes('封禁') || lastError.includes('temporarily')
-  )
+  const isBanned =
+    account.status === 'error' &&
+    (lastError.includes('suspended') ||
+      lastError.includes('封禁') ||
+      lastError.includes('temporarily'))
   if (isBanned) {
     return { eligible: false, reason: 'banned', detail: account.lastError }
   }
@@ -71,18 +102,6 @@ interface SubscriptionPlan {
   pricing: { amount: number; currency: string }
 }
 
-interface SubscriptionLink {
-  accountId: string
-  email: string
-  status: 'pending' | 'loading' | 'success' | 'error' | 'expired'
-  url?: string
-  error?: string
-  /** 链接生成时间（用于估算有效期） */
-  generatedAt?: number
-  /** 链接是否经过本地有效性探测且通过 */
-  validated?: boolean
-}
-
 interface OverageItem {
   accountId: string
   email: string
@@ -91,23 +110,13 @@ interface OverageItem {
 }
 
 // 模块级状态：组件卸载后仍保留（同一会话内）
-let _links: SubscriptionLink[] = []
-let _linksNotify: ((links: SubscriptionLink[]) => void) | null = null
-
-export function appendSubscriptionLink(link: SubscriptionLink): void {
-  _links = [..._links, link]
-  _linksNotify?.(_links)
-}
-
-export function updateSubscriptionLink(accountId: string, update: Partial<SubscriptionLink>): void {
-  _links = _links.map(l => l.accountId === accountId ? { ...l, ...update } : l)
-  _linksNotify?.(_links)
-}
 let _availablePlans: SubscriptionPlan[] = []
 let _selectedPlanType = ''
 let _selectedLinkIds: Set<string> = new Set()
 let _activeTab: SubTab = 'overage'
 let _overageItems: OverageItem[] = []
+const SHOW_LEGACY_SUBSCRIPTION_MANAGE_UI = false
+const SHOW_LEGACY_SUBSCRIBED_LIST_UI = false
 
 export function SubscriptionPage() {
   const { accounts, selectedIds, updateAccount } = useAccountsStore()
@@ -115,12 +124,15 @@ export function SubscriptionPage() {
   const isEn = actualLanguage === 'en'
 
   const [activeTab, setActiveTabState] = useState<SubTab>(_activeTab)
-  const setActiveTab = (v: SubTab) => { _activeTab = v; setActiveTabState(v) }
-  
-  const [links, setLinksState] = useState<SubscriptionLink[]>(_links)
+  const setActiveTab = (v: SubTab) => {
+    _activeTab = v
+    setActiveTabState(v)
+  }
+
+  const [links, setLinksState] = useState<SubscriptionLink[]>(getSubscriptionLinks())
   const [isFetching, setIsFetching] = useState(false)
   const [selectedLinkIds, setSelectedLinkIdsState] = useState<Set<string>>(_selectedLinkIds)
-  
+
   // 计划选择相关
   const [availablePlans, setAvailablePlansState] = useState<SubscriptionPlan[]>(_availablePlans)
   const [selectedPlanType, setSelectedPlanTypeState] = useState<string>(_selectedPlanType)
@@ -132,15 +144,17 @@ export function SubscriptionPage() {
   const overageListRef = useRef<HTMLDivElement>(null)
 
   // 包装 setter，同步更新模块级变量
-  const setLinks = (val: SubscriptionLink[] | ((prev: SubscriptionLink[]) => SubscriptionLink[])) => {
-    setLinksState(prev => {
+  const setLinks = (
+    val: SubscriptionLink[] | ((prev: SubscriptionLink[]) => SubscriptionLink[])
+  ) => {
+    setLinksState((prev) => {
       const next = typeof val === 'function' ? val(prev) : val
-      _links = next
+      setSubscriptionLinks(next)
       return next
     })
   }
   const setSelectedLinkIds = (val: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-    setSelectedLinkIdsState(prev => {
+    setSelectedLinkIdsState((prev) => {
       const next = typeof val === 'function' ? val(prev) : val
       _selectedLinkIds = next
       return next
@@ -155,7 +169,7 @@ export function SubscriptionPage() {
     setSelectedPlanTypeState(val)
   }
   const setOverageItems = (val: OverageItem[] | ((prev: OverageItem[]) => OverageItem[])) => {
-    setOverageItemsState(prev => {
+    setOverageItemsState((prev) => {
       const next = typeof val === 'function' ? val(prev) : val
       _overageItems = next
       return next
@@ -164,8 +178,7 @@ export function SubscriptionPage() {
 
   // 注册外部写入回调（让 appendSubscriptionLink/updateSubscriptionLink 同步 React state）
   useEffect(() => {
-    _linksNotify = setLinksState
-    return () => { _linksNotify = null }
+    return subscribeSubscriptionLinks(setLinksState)
   }, [])
 
   // 超额列表自动滚动到底部
@@ -176,11 +189,14 @@ export function SubscriptionPage() {
 
   // 获取可升级的 FREE 账户（从选中或全部）
   const getUpgradeableAccounts = useCallback(() => {
-    const source = selectedIds.size > 0 
-      ? Array.from(selectedIds).map(id => accounts.get(id)).filter(Boolean)
-      : Array.from(accounts.values())
-    
-    return source.filter(acc => {
+    const source =
+      selectedIds.size > 0
+        ? Array.from(selectedIds)
+            .map((id) => accounts.get(id))
+            .filter(Boolean)
+        : Array.from(accounts.values())
+
+    return source.filter((acc) => {
       if (!acc) return false
       const type = (acc.subscription?.type || '').toUpperCase()
       const title = (acc.subscription?.title || '').toUpperCase()
@@ -192,11 +208,18 @@ export function SubscriptionPage() {
 
   // 订阅升级前预检：基于"选中账号或全部账号"做完整检查，列出可升级 / 不可升级原因
   const preflightReport = useMemo(() => {
-    const source = selectedIds.size > 0
-      ? Array.from(selectedIds).map(id => accounts.get(id)).filter(Boolean)
-      : Array.from(accounts.values())
+    const source =
+      selectedIds.size > 0
+        ? Array.from(selectedIds)
+            .map((id) => accounts.get(id))
+            .filter(Boolean)
+        : Array.from(accounts.values())
     const eligible: typeof source = []
-    const blocked: Array<{ account: NonNullable<typeof source[number]>; reason: EligibilityReason; detail?: string }> = []
+    const blocked: Array<{
+      account: NonNullable<(typeof source)[number]>
+      reason: EligibilityReason
+      detail?: string
+    }> = []
     for (const acc of source) {
       if (!acc) continue
       const r = checkUpgradeEligibility(acc)
@@ -205,8 +228,12 @@ export function SubscriptionPage() {
     }
     // 按 reason 分桶
     const reasonBuckets: Record<EligibilityReason, number> = {
-      'ok': eligible.length,
-      'no-token': 0, 'already-pro': 0, 'banned': 0, 'cant-upgrade': 0, 'unknown-status': 0
+      ok: eligible.length,
+      'no-token': 0,
+      'already-pro': 0,
+      banned: 0,
+      'cant-upgrade': 0,
+      'unknown-status': 0
     }
     for (const b of blocked) reasonBuckets[b.reason]++
     return { eligible, blocked, reasonBuckets, totalScanned: source.length }
@@ -219,7 +246,7 @@ export function SubscriptionPage() {
 
     setIsLoadingPlans(true)
     const acc = upgradeableAccounts[0]!
-    
+
     try {
       const result = await window.api.accountGetSubscriptions(
         acc.credentials.accessToken,
@@ -233,9 +260,12 @@ export function SubscriptionPage() {
       if (result.success && result.plans && result.plans.length > 0) {
         setAvailablePlans(result.plans)
         // 默认选择第一个 PRO 计划
-        const defaultPlan = result.plans.find(p => 
-          p.qSubscriptionType?.toUpperCase().includes('PRO') && !p.qSubscriptionType?.toUpperCase().includes('PLUS')
-        ) || result.plans[0]
+        const defaultPlan =
+          result.plans.find(
+            (p) =>
+              p.qSubscriptionType?.toUpperCase().includes('PRO') &&
+              !p.qSubscriptionType?.toUpperCase().includes('PLUS')
+          ) || result.plans[0]
         setSelectedPlanType(defaultPlan.qSubscriptionType)
       }
     } catch (error) {
@@ -253,9 +283,9 @@ export function SubscriptionPage() {
     if (upgradeableAccounts.length === 0 || !selectedPlanType) return
 
     setIsFetching(true)
-    
+
     // 初始化状态
-    const initialLinks: SubscriptionLink[] = upgradeableAccounts.map(acc => ({
+    const initialLinks: SubscriptionLink[] = upgradeableAccounts.map((acc) => ({
       accountId: acc!.id,
       email: acc!.email || 'Unknown',
       status: 'pending'
@@ -266,9 +296,7 @@ export function SubscriptionPage() {
     // 单个账号获取任务
     const fetchOne = async (idx: number) => {
       const acc = upgradeableAccounts[idx]!
-      setLinks(prev => prev.map((link, i) => 
-        i === idx ? { ...link, status: 'loading' } : link
-      ))
+      setLinks((prev) => prev.map((link, i) => (i === idx ? { ...link, status: 'loading' } : link)))
 
       try {
         const tokenResult = await window.api.accountGetSubscriptionUrl(
@@ -283,18 +311,40 @@ export function SubscriptionPage() {
         )
 
         if (tokenResult.success && tokenResult.url) {
-          setLinks(prev => prev.map((link, i) => 
-            i === idx ? { ...link, status: 'success', url: tokenResult.url, generatedAt: Date.now(), validated: false } : link
-          ))
+          setLinks((prev) =>
+            prev.map((link, i) =>
+              i === idx
+                ? {
+                    ...link,
+                    status: 'success',
+                    url: tokenResult.url,
+                    generatedAt: Date.now(),
+                    validated: false
+                  }
+                : link
+            )
+          )
         } else {
-          setLinks(prev => prev.map((link, i) => 
-            i === idx ? { ...link, status: 'error', error: tokenResult.error || 'Failed to get URL' } : link
-          ))
+          setLinks((prev) =>
+            prev.map((link, i) =>
+              i === idx
+                ? { ...link, status: 'error', error: tokenResult.error || 'Failed to get URL' }
+                : link
+            )
+          )
         }
       } catch (error) {
-        setLinks(prev => prev.map((link, i) => 
-          i === idx ? { ...link, status: 'error', error: error instanceof Error ? error.message : 'Unknown error' } : link
-        ))
+        setLinks((prev) =>
+          prev.map((link, i) =>
+            i === idx
+              ? {
+                  ...link,
+                  status: 'error',
+                  error: error instanceof Error ? error.message : 'Unknown error'
+                }
+              : link
+          )
+        )
       }
     }
 
@@ -315,7 +365,7 @@ export function SubscriptionPage() {
 
   // 选择/取消选择链接（允许任意状态）
   const toggleLinkSelection = (accountId: string) => {
-    setSelectedLinkIds(prev => {
+    setSelectedLinkIds((prev) => {
       const next = new Set(prev)
       if (next.has(accountId)) {
         next.delete(accountId)
@@ -331,13 +381,13 @@ export function SubscriptionPage() {
     if (selectedLinkIds.size === links.length && links.length > 0) {
       setSelectedLinkIds(new Set())
     } else {
-      setSelectedLinkIds(new Set(links.map(l => l.accountId)))
+      setSelectedLinkIds(new Set(links.map((l) => l.accountId)))
     }
   }
 
   // 反选
   const invertSelection = () => {
-    setSelectedLinkIds(prev => {
+    setSelectedLinkIds((prev) => {
       const next = new Set<string>()
       for (const l of links) {
         if (!prev.has(l.accountId)) next.add(l.accountId)
@@ -353,7 +403,7 @@ export function SubscriptionPage() {
 
   // 按状态选择：把指定状态的链接加入到当前选择集（保留已有选择）
   const selectByStatus = (status: SubscriptionLink['status']) => {
-    setSelectedLinkIds(prev => {
+    setSelectedLinkIds((prev) => {
       const next = new Set(prev)
       for (const l of links) {
         if (l.status === status) next.add(l.accountId)
@@ -365,28 +415,34 @@ export function SubscriptionPage() {
   // 批量删除选中的链接（从结果列表中移除，不会调用任何 API）
   const handleBatchDelete = () => {
     if (selectedLinkIds.size === 0) return
-    if (!confirm(isEn
-      ? `Remove ${selectedLinkIds.size} selected links from the list?`
-      : `从列表移除选中的 ${selectedLinkIds.size} 个链接？`
-    )) return
-    setLinks(prev => prev.filter(l => !selectedLinkIds.has(l.accountId)))
+    if (
+      !confirm(
+        isEn
+          ? `Remove ${selectedLinkIds.size} selected links from the list?`
+          : `从列表移除选中的 ${selectedLinkIds.size} 个链接？`
+      )
+    )
+      return
+    setLinks((prev) => prev.filter((l) => !selectedLinkIds.has(l.accountId)))
     setSelectedLinkIds(new Set())
   }
 
   // 批量删除"失败 + 过期"：清理无效项，保留可用链接
   const handleDeleteFailed = () => {
-    const count = links.filter(l => l.status === 'error' || l.status === 'expired').length
+    const count = links.filter((l) => l.status === 'error' || l.status === 'expired').length
     if (count === 0) return
-    if (!confirm(isEn
-      ? `Remove ${count} failed/expired links?`
-      : `移除 ${count} 个失败/过期的链接？`
-    )) return
-    setLinks(prev => {
-      const filtered = prev.filter(l => l.status !== 'error' && l.status !== 'expired')
+    if (
+      !confirm(isEn ? `Remove ${count} failed/expired links?` : `移除 ${count} 个失败/过期的链接？`)
+    )
+      return
+    setLinks((prev) => {
+      const filtered = prev.filter((l) => l.status !== 'error' && l.status !== 'expired')
       // 移除的 ID 也从选择集里清掉
-      const removedIds = prev.filter(l => l.status === 'error' || l.status === 'expired').map(l => l.accountId)
+      const removedIds = prev
+        .filter((l) => l.status === 'error' || l.status === 'expired')
+        .map((l) => l.accountId)
       if (removedIds.length > 0) {
-        setSelectedLinkIds(s => {
+        setSelectedLinkIds((s) => {
           const next = new Set(s)
           for (const id of removedIds) next.delete(id)
           return next
@@ -398,9 +454,9 @@ export function SubscriptionPage() {
 
   // 获取目标链接列表（选中的或全部成功的）
   const getTargetLinks = (mode: 'selected' | 'all'): SubscriptionLink[] => {
-    const successLinks = links.filter(l => l.status === 'success' && l.url)
+    const successLinks = links.filter((l) => l.status === 'success' && l.url)
     if (mode === 'selected') {
-      return successLinks.filter(l => selectedLinkIds.has(l.accountId))
+      return successLinks.filter((l) => selectedLinkIds.has(l.accountId))
     }
     return successLinks
   }
@@ -419,7 +475,11 @@ export function SubscriptionPage() {
     const acc = accounts.get(accountId)
     if (!acc || !acc.credentials?.accessToken) return
 
-    setLinks(prev => prev.map((l) => l.accountId === accountId ? { ...l, status: 'loading', error: undefined } : l))
+    setLinks((prev) =>
+      prev.map((l) =>
+        l.accountId === accountId ? { ...l, status: 'loading', error: undefined } : l
+      )
+    )
     try {
       const r = await window.api.accountGetSubscriptionUrl(
         acc.credentials.accessToken,
@@ -431,20 +491,30 @@ export function SubscriptionPage() {
         acc.credentials?.authMethod,
         acc.id
       )
-      setLinks(prev => prev.map((l) =>
-        l.accountId === accountId
-          ? (r.success && r.url
-            ? { ...l, status: 'success', url: r.url, error: undefined, generatedAt: Date.now(), validated: false }
-            : { ...l, status: 'error', error: r.error || 'Failed' }
-          )
-          : l
-      ))
+      setLinks((prev) =>
+        prev.map((l) =>
+          l.accountId === accountId
+            ? r.success && r.url
+              ? {
+                  ...l,
+                  status: 'success',
+                  url: r.url,
+                  error: undefined,
+                  generatedAt: Date.now(),
+                  validated: false
+                }
+              : { ...l, status: 'error', error: r.error || 'Failed' }
+            : l
+        )
+      )
     } catch (err) {
-      setLinks(prev => prev.map((l) =>
-        l.accountId === accountId
-          ? { ...l, status: 'error', error: err instanceof Error ? err.message : 'Unknown error' }
-          : l
-      ))
+      setLinks((prev) =>
+        prev.map((l) =>
+          l.accountId === accountId
+            ? { ...l, status: 'error', error: err instanceof Error ? err.message : 'Unknown error' }
+            : l
+        )
+      )
     }
   }
 
@@ -476,24 +546,33 @@ export function SubscriptionPage() {
           const l = realProbe[idx]
           if (!l.url) continue
           try {
-            const r = await window.api.diagnoseHttpProbe({ url: l.url, method: 'HEAD', timeoutMs: 6000 })
+            const r = await window.api.diagnoseHttpProbe({
+              url: l.url,
+              method: 'HEAD',
+              timeoutMs: 6000
+            })
             // 4xx/5xx 视为失效，2xx/3xx 视为有效
-            checkResults[l.accountId] = r.success || (r.status !== undefined && r.status < 400)
-              ? 'success'
-              : 'expired'
+            checkResults[l.accountId] =
+              r.success || (r.status !== undefined && r.status < 400) ? 'success' : 'expired'
           } catch {
             checkResults[l.accountId] = 'expired'
           }
         }
       }
-      const workers = Array.from({ length: Math.min(concurrency, realProbe.length) }, () => worker())
+      const workers = Array.from({ length: Math.min(concurrency, realProbe.length) }, () =>
+        worker()
+      )
       await Promise.all(workers)
 
       const next = links.map((l) => {
         const result = checkResults[l.accountId]
         if (!result) return l
         if (result === 'expired') {
-          return { ...l, status: 'expired' as const, error: '链接已失效（HTTP 探测失败或超过 15 分钟）' }
+          return {
+            ...l,
+            status: 'expired' as const,
+            error: '链接已失效（HTTP 探测失败或超过 15 分钟）'
+          }
         }
         return { ...l, validated: true }
       })
@@ -515,9 +594,7 @@ export function SubscriptionPage() {
   const handleBatchOpen = async (mode: 'selected' | 'all') => {
     const targetLinks = getTargetLinks(mode)
     await Promise.all(
-      targetLinks
-        .filter(l => l.url)
-        .map(l => window.api.openSubscriptionWindow(l.url!))
+      targetLinks.filter((l) => l.url).map((l) => window.api.openSubscriptionWindow(l.url!))
     )
   }
 
@@ -529,40 +606,56 @@ export function SubscriptionPage() {
   // 导出链接
   const handleExport = async (mode: 'selected' | 'all') => {
     const targetLinks = getTargetLinks(mode)
-    const text = targetLinks.map(l => l.url).join('\n')
+    const text = targetLinks.map((l) => l.url).join('\n')
     await navigator.clipboard.writeText(text)
   }
 
-  // ===== 一键超额功能 =====
-  // 获取可设置超额的账号（仅未开启）：已订阅（非 Free）、有 token、超额能力可用、超额未开启
-  const getOverageableAccounts = useCallback(() => {
-    return getAllSubscribedAccounts().filter(acc => acc && acc.subscription?.overageCapability === 'OVERAGE_CAPABLE' && acc.usage?.resourceDetail?.overageEnabled !== true)
-  }, [accounts, selectedIds])
-
   // 获取所有已订阅账号（不限制超额能力，不限制是否已开启）
   const getAllSubscribedAccounts = useCallback(() => {
-    const source = selectedIds.size > 0
-      ? Array.from(selectedIds).map(id => accounts.get(id)).filter(Boolean)
-      : Array.from(accounts.values())
+    const source =
+      selectedIds.size > 0
+        ? Array.from(selectedIds)
+            .map((id) => accounts.get(id))
+            .filter(Boolean)
+        : Array.from(accounts.values())
 
-    return source.filter(acc => {
+    return source.filter((acc) => {
       if (!acc) return false
       const hasToken = !!acc.credentials?.accessToken
       const type = (acc.subscription?.type || '').toUpperCase()
       const title = (acc.subscription?.title || '').toUpperCase()
-      const isSubscribed = type.includes('PRO') || type.includes('ENTERPRISE') || type.includes('TEAMS') || title.includes('PRO') || title.includes('ENTERPRISE') || title.includes('TEAMS')
+      const isSubscribed =
+        type.includes('PRO') ||
+        type.includes('ENTERPRISE') ||
+        type.includes('TEAMS') ||
+        title.includes('PRO') ||
+        title.includes('ENTERPRISE') ||
+        title.includes('TEAMS')
       return hasToken && isSubscribed
     })
   }, [accounts, selectedIds])
 
-  const handleBatchSetOverage = async (customTargets?: NonNullable<ReturnType<typeof getAllSubscribedAccounts>>) => {
+  // ===== 一键超额功能 =====
+  // 获取可设置超额的账号（仅未开启）：已订阅（非 Free）、有 token、超额能力可用、超额未开启
+  const getOverageableAccounts = useCallback(() => {
+    return getAllSubscribedAccounts().filter(
+      (acc) =>
+        acc &&
+        acc.subscription?.overageCapability === 'OVERAGE_CAPABLE' &&
+        acc.usage?.resourceDetail?.overageEnabled !== true
+    )
+  }, [getAllSubscribedAccounts])
+
+  const handleBatchSetOverage = async (
+    customTargets?: NonNullable<ReturnType<typeof getAllSubscribedAccounts>>
+  ) => {
     const targets = customTargets ?? getOverageableAccounts()
     if (targets.length === 0) return
 
     setIsSettingOverage(true)
 
     // 初始化列表
-    const initialItems: OverageItem[] = targets.map(acc => ({
+    const initialItems: OverageItem[] = targets.map((acc) => ({
       accountId: acc!.id,
       email: acc!.email || 'Unknown',
       status: 'pending'
@@ -571,9 +664,9 @@ export function SubscriptionPage() {
 
     const setOne = async (idx: number) => {
       const acc = targets[idx]!
-      setOverageItems(prev => prev.map((item, i) =>
-        i === idx ? { ...item, status: 'loading' } : item
-      ))
+      setOverageItems((prev) =>
+        prev.map((item, i) => (i === idx ? { ...item, status: 'loading' } : item))
+      )
 
       try {
         const res = await window.api.accountSetOverage(
@@ -587,9 +680,9 @@ export function SubscriptionPage() {
           acc.id
         )
         if (res.success) {
-          setOverageItems(prev => prev.map((item, i) =>
-            i === idx ? { ...item, status: 'success' } : item
-          ))
+          setOverageItems((prev) =>
+            prev.map((item, i) => (i === idx ? { ...item, status: 'success' } : item))
+          )
           // 更新 store 中账号的超额状态，使 UI 即时反映
           const existing = accounts.get(acc.id)
           if (existing) {
@@ -604,14 +697,24 @@ export function SubscriptionPage() {
             })
           }
         } else {
-          setOverageItems(prev => prev.map((item, i) =>
-            i === idx ? { ...item, status: 'error', error: res.error || 'Unknown error' } : item
-          ))
+          setOverageItems((prev) =>
+            prev.map((item, i) =>
+              i === idx ? { ...item, status: 'error', error: res.error || 'Unknown error' } : item
+            )
+          )
         }
       } catch (e) {
-        setOverageItems(prev => prev.map((item, i) =>
-          i === idx ? { ...item, status: 'error', error: e instanceof Error ? e.message : 'Unknown error' } : item
-        ))
+        setOverageItems((prev) =>
+          prev.map((item, i) =>
+            i === idx
+              ? {
+                  ...item,
+                  status: 'error',
+                  error: e instanceof Error ? e.message : 'Unknown error'
+                }
+              : item
+          )
+        )
       }
     }
 
@@ -631,11 +734,11 @@ export function SubscriptionPage() {
 
   const overageableCount = getOverageableAccounts().length
   const allSubscribedCount = getAllSubscribedAccounts().length
-  const overageSuccessCount = overageItems.filter(i => i.status === 'success').length
-  const overageErrorCount = overageItems.filter(i => i.status === 'error').length
+  const overageSuccessCount = overageItems.filter((i) => i.status === 'success').length
+  const overageErrorCount = overageItems.filter((i) => i.status === 'error').length
 
-  const successCount = links.filter(l => l.status === 'success').length
-  const errorCount = links.filter(l => l.status === 'error').length
+  const successCount = links.filter((l) => l.status === 'success').length
+  const errorCount = links.filter((l) => l.status === 'error').length
   const selectedCount = selectedLinkIds.size
   const upgradeableCount = getUpgradeableAccounts().length
 
@@ -650,12 +753,17 @@ export function SubscriptionPage() {
             <CreditCard className="h-7 w-7 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-primary">{isEn ? 'Batch Subscription' : '批量订阅'}</h1>
+            <h1 className="text-2xl font-bold text-primary">
+              {isEn ? 'Batch Subscription' : '批量订阅'}
+            </h1>
             <p className="text-sm text-muted-foreground">
               {selectedIds.size > 0
-                ? (isEn ? `Using ${selectedIds.size} selected accounts` : `使用已选中的 ${selectedIds.size} 个账户`)
-                : (isEn ? 'Using all accounts' : '使用全部账户')
-              }
+                ? isEn
+                  ? `Using ${selectedIds.size} selected accounts`
+                  : `使用已选中的 ${selectedIds.size} 个账户`
+                : isEn
+                  ? 'Using all accounts'
+                  : '使用全部账户'}
             </p>
           </div>
         </div>
@@ -717,10 +825,7 @@ export function SubscriptionPage() {
                 ) : (
                   <Zap className="h-4 w-4 mr-1" />
                 )}
-                {isEn
-                  ? `Enable Overage (${overageableCount})`
-                  : `一键超额 (${overageableCount})`
-                }
+                {isEn ? `Enable Overage (${overageableCount})` : `一键超额 (${overageableCount})`}
               </Button>
 
               <Button
@@ -734,10 +839,7 @@ export function SubscriptionPage() {
                 ) : (
                   <Zap className="h-4 w-4 mr-1" />
                 )}
-                {isEn
-                  ? `Set All (${allSubscribedCount})`
-                  : `全部设置 (${allSubscribedCount})`
-                }
+                {isEn ? `Set All (${allSubscribedCount})` : `全部设置 (${allSubscribedCount})`}
               </Button>
 
               <Button
@@ -754,7 +856,9 @@ export function SubscriptionPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setOverageItems(prev => prev.filter(it => it.status !== 'error'))}
+                onClick={() =>
+                  setOverageItems((prev) => prev.filter((it) => it.status !== 'error'))
+                }
                 disabled={isSettingOverage || overageErrorCount === 0}
                 title={isEn ? 'Remove failed items only' : '仅移除失败项'}
               >
@@ -781,9 +885,12 @@ export function SubscriptionPage() {
 
               <span className="text-xs text-muted-foreground ml-2">
                 {overageableCount > 0
-                  ? (isEn ? `${overageableCount} subscribed accounts without overage enabled` : `${overageableCount} 个已订阅账号未开启超额`)
-                  : (isEn ? 'No accounts need overage enablement' : '没有需要开启超额的账号')
-                }
+                  ? isEn
+                    ? `${overageableCount} subscribed accounts without overage enabled`
+                    : `${overageableCount} 个已订阅账号未开启超额`
+                  : isEn
+                    ? 'No accounts need overage enablement'
+                    : '没有需要开启超额的账号'}
               </span>
 
               {/* 统计 */}
@@ -802,7 +909,10 @@ export function SubscriptionPage() {
                   {isSettingOverage && (
                     <span className="flex items-center gap-1">
                       <Loader2 className="h-3 w-3 animate-spin" />
-                      {overageItems.filter(i => i.status === 'pending' || i.status === 'loading').length}
+                      {
+                        overageItems.filter((i) => i.status === 'pending' || i.status === 'loading')
+                          .length
+                      }
                     </span>
                   )}
                 </div>
@@ -829,11 +939,17 @@ export function SubscriptionPage() {
                       key={item.accountId}
                       className="flex items-center gap-3 py-2 px-2 border-b last:border-b-0 hover:bg-muted/50 transition-colors"
                     >
-                      <span className="w-8 text-center text-xs text-muted-foreground">{idx + 1}</span>
-                      <span className="flex-1 text-sm truncate" title={item.email}>{item.email}</span>
+                      <span className="w-8 text-center text-xs text-muted-foreground">
+                        {idx + 1}
+                      </span>
+                      <span className="flex-1 text-sm truncate" title={item.email}>
+                        {item.email}
+                      </span>
                       <span className="w-20 flex justify-center">
                         {item.status === 'pending' && (
-                          <span className="text-xs text-muted-foreground">{isEn ? 'Pending' : '等待中'}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {isEn ? 'Pending' : '等待中'}
+                          </span>
                         )}
                         {item.status === 'loading' && (
                           <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
@@ -841,19 +957,23 @@ export function SubscriptionPage() {
                         {item.status === 'success' && (
                           <CheckCircle className="h-4 w-4 text-green-500" />
                         )}
-                        {item.status === 'error' && (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
+                        {item.status === 'error' && <XCircle className="h-4 w-4 text-red-500" />}
                         {item.status === 'skipped' && (
-                          <span className="text-xs text-muted-foreground">{isEn ? 'Skipped' : '跳过'}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {isEn ? 'Skipped' : '跳过'}
+                          </span>
                         )}
                       </span>
                       <span className="flex-1 text-right text-xs truncate">
                         {item.status === 'success' && (
-                          <span className="text-green-600">{isEn ? 'Overage enabled' : '超额已开启'}</span>
+                          <span className="text-green-600">
+                            {isEn ? 'Overage enabled' : '超额已开启'}
+                          </span>
                         )}
                         {item.status === 'error' && (
-                          <span className="text-red-500" title={item.error}>{item.error}</span>
+                          <span className="text-red-500" title={item.error}>
+                            {item.error}
+                          </span>
                         )}
                       </span>
                     </div>
@@ -885,8 +1005,12 @@ export function SubscriptionPage() {
                           key={acc.id}
                           className="flex items-center gap-3 py-2 px-2 border-b last:border-b-0 hover:bg-muted/50 transition-colors"
                         >
-                          <span className="w-8 text-center text-xs text-muted-foreground">{idx + 1}</span>
-                          <span className="flex-1 text-sm truncate" title={acc.email}>{acc.email}</span>
+                          <span className="w-8 text-center text-xs text-muted-foreground">
+                            {idx + 1}
+                          </span>
+                          <span className="flex-1 text-sm truncate" title={acc.email}>
+                            {acc.email}
+                          </span>
                           <span className="w-24 text-center text-xs">
                             {acc.subscription?.title || acc.subscription?.type || '-'}
                           </span>
@@ -899,9 +1023,13 @@ export function SubscriptionPage() {
                           </span>
                           <span className="w-24 flex justify-center">
                             {enabled ? (
-                              <span className="text-xs text-green-600 font-medium">{isEn ? 'ENABLED' : '已开启'}</span>
+                              <span className="text-xs text-green-600 font-medium">
+                                {isEn ? 'ENABLED' : '已开启'}
+                              </span>
                             ) : capable ? (
-                              <span className="text-xs text-amber-500 font-medium">{isEn ? 'DISABLED' : '未开启'}</span>
+                              <span className="text-xs text-amber-500 font-medium">
+                                {isEn ? 'DISABLED' : '未开启'}
+                              </span>
                             ) : (
                               <span className="text-xs text-muted-foreground">-</span>
                             )}
@@ -936,7 +1064,7 @@ export function SubscriptionPage() {
         />
       )}
 
-      {false && false && (
+      {SHOW_LEGACY_SUBSCRIPTION_MANAGE_UI && (
         <>
           {/* 说明（被新的 ManageSubscriptionsTab 替代，保留作为 dead code 防止意外删除 - eslint 已忽略） */}
           <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/10">
@@ -950,8 +1078,7 @@ export function SubscriptionPage() {
               <p className="text-xs text-muted-foreground">
                 {isEn
                   ? 'Cancel or downgrade subscriptions. Kiro/AWS does not provide a direct cancel API for OIDC accounts — clicking "Get cancel URL" generates the same subscription portal link used for upgrade, where you can manage/cancel via AWS billing console.'
-                  : '取消或降级订阅。Kiro/AWS 对 OIDC 账号未公开取消订阅的直接 API，点击"获取取消链接"会生成订阅门户链接，可在 AWS 计费控制台手动管理/取消订阅。'
-                }
+                  : '取消或降级订阅。Kiro/AWS 对 OIDC 账号未公开取消订阅的直接 API，点击"获取取消链接"会生成订阅门户链接，可在 AWS 计费控制台手动管理/取消订阅。'}
               </p>
             </CardContent>
           </Card>
@@ -976,8 +1103,7 @@ export function SubscriptionPage() {
                       <p className="text-sm">
                         {isEn
                           ? 'No subscribed accounts found. Run "Check Accounts" first to refresh status.'
-                          : '未发现已订阅账号。请先在账户页"批量检查"刷新状态。'
-                        }
+                          : '未发现已订阅账号。请先在账户页"批量检查"刷新状态。'}
                       </p>
                     </div>
                   )
@@ -995,29 +1121,34 @@ export function SubscriptionPage() {
                           className="flex items-center gap-3 py-2 px-3 border-b last:border-b-0 hover:bg-muted/40 text-xs"
                         >
                           <span className="w-8 text-center text-muted-foreground">{idx + 1}</span>
-                          <span className="flex-1 truncate" title={acc.email}>{acc.email}</span>
+                          <span className="flex-1 truncate" title={acc.email}>
+                            {acc.email}
+                          </span>
                           <span className="w-32 text-center">
-                            <span className={cn(
-                              'inline-block px-2 py-0.5 rounded text-[10px] font-medium',
-                              planName.toUpperCase().includes('PRO+') || planName.toUpperCase().includes('PRO_PLUS')
-                                ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
-                                : planName.toUpperCase().includes('POWER')
-                                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                                  : planName.toUpperCase().includes('PRO')
-                                    ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
-                                    : 'bg-muted text-muted-foreground'
-                            )}>
+                            <span
+                              className={cn(
+                                'inline-block px-2 py-0.5 rounded text-[10px] font-medium',
+                                planName.toUpperCase().includes('PRO+') ||
+                                  planName.toUpperCase().includes('PRO_PLUS')
+                                  ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
+                                  : planName.toUpperCase().includes('POWER')
+                                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                    : planName.toUpperCase().includes('PRO')
+                                      ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
+                                      : 'bg-muted text-muted-foreground'
+                              )}
+                            >
                               {planName}
                             </span>
                           </span>
                           <span className="w-32 text-center text-muted-foreground">
                             {expiresAt
                               ? new Date(expiresAt).toLocaleDateString('zh-CN')
-                              : (daysLeft != null
-                                ? (isEn ? `${daysLeft}d` : `${daysLeft} 天`)
-                                : '-'
-                              )
-                            }
+                              : daysLeft != null
+                                ? isEn
+                                  ? `${daysLeft}d`
+                                  : `${daysLeft} 天`
+                                : '-'}
                           </span>
                           <span className="w-40 flex justify-center gap-1">
                             <button
@@ -1040,7 +1171,11 @@ export function SubscriptionPage() {
                                 }
                               }}
                               className="px-2 py-1 rounded text-[10px] bg-primary/10 text-primary hover:bg-primary/20"
-                              title={isEn ? 'Open subscription portal to cancel/manage' : '打开订阅门户取消/管理'}
+                              title={
+                                isEn
+                                  ? 'Open subscription portal to cancel/manage'
+                                  : '打开订阅门户取消/管理'
+                              }
                             >
                               <ExternalLink className="h-3 w-3 inline mr-1" />
                               {isEn ? 'Manage' : '管理'}
@@ -1049,10 +1184,14 @@ export function SubscriptionPage() {
                             {acc.usage?.resourceDetail?.overageEnabled && (
                               <button
                                 onClick={async () => {
-                                  if (!confirm(isEn
-                                    ? `Disable overage for ${acc.email}?`
-                                    : `关闭 ${acc.email} 的超额？`
-                                  )) return
+                                  if (
+                                    !confirm(
+                                      isEn
+                                        ? `Disable overage for ${acc.email}?`
+                                        : `关闭 ${acc.email} 的超额？`
+                                    )
+                                  )
+                                    return
                                   const r = await window.api.accountSetOverage(
                                     acc.credentials.accessToken,
                                     'DISABLED',
@@ -1067,7 +1206,10 @@ export function SubscriptionPage() {
                                     updateAccount(acc.id, {
                                       usage: {
                                         ...acc.usage,
-                                        resourceDetail: { ...acc.usage?.resourceDetail, overageEnabled: false }
+                                        resourceDetail: {
+                                          ...acc.usage?.resourceDetail,
+                                          overageEnabled: false
+                                        }
                                       }
                                     })
                                   } else {
@@ -1098,9 +1240,12 @@ export function SubscriptionPage() {
         <>
           {/* 预检面板：展示可升级 / 阻塞原因 */}
           {preflightReport.totalScanned > 0 && (
-            <Card className={cn(
-              preflightReport.eligible.length === 0 && 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/10'
-            )}>
+            <Card
+              className={cn(
+                preflightReport.eligible.length === 0 &&
+                  'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/10'
+              )}
+            >
               <CardContent className="py-3 space-y-2">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-primary" />
@@ -1110,8 +1255,7 @@ export function SubscriptionPage() {
                   <span className="text-xs text-muted-foreground">
                     {isEn
                       ? `Scanned ${preflightReport.totalScanned} accounts: ${preflightReport.eligible.length} eligible, ${preflightReport.blocked.length} blocked`
-                      : `扫描 ${preflightReport.totalScanned} 个账号：${preflightReport.eligible.length} 可升级，${preflightReport.blocked.length} 不可升级`
-                    }
+                      : `扫描 ${preflightReport.totalScanned} 个账号：${preflightReport.eligible.length} 可升级，${preflightReport.blocked.length} 不可升级`}
                   </span>
                 </div>
 
@@ -1121,31 +1265,41 @@ export function SubscriptionPage() {
                     {preflightReport.reasonBuckets['already-pro'] > 0 && (
                       <span className="px-2 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 inline-flex items-center gap-1">
                         <CheckCircle className="h-2.5 w-2.5" />
-                        {isEn ? `Already subscribed: ${preflightReport.reasonBuckets['already-pro']}` : `已订阅 ${preflightReport.reasonBuckets['already-pro']}`}
+                        {isEn
+                          ? `Already subscribed: ${preflightReport.reasonBuckets['already-pro']}`
+                          : `已订阅 ${preflightReport.reasonBuckets['already-pro']}`}
                       </span>
                     )}
                     {preflightReport.reasonBuckets['no-token'] > 0 && (
                       <span className="px-2 py-0.5 rounded bg-muted text-muted-foreground inline-flex items-center gap-1">
                         <XCircle className="h-2.5 w-2.5" />
-                        {isEn ? `No token: ${preflightReport.reasonBuckets['no-token']}` : `无 Token ${preflightReport.reasonBuckets['no-token']}`}
+                        {isEn
+                          ? `No token: ${preflightReport.reasonBuckets['no-token']}`
+                          : `无 Token ${preflightReport.reasonBuckets['no-token']}`}
                       </span>
                     )}
                     {preflightReport.reasonBuckets['banned'] > 0 && (
                       <span className="px-2 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 inline-flex items-center gap-1">
                         <Ban className="h-2.5 w-2.5" />
-                        {isEn ? `Banned: ${preflightReport.reasonBuckets['banned']}` : `已封禁 ${preflightReport.reasonBuckets['banned']}`}
+                        {isEn
+                          ? `Banned: ${preflightReport.reasonBuckets['banned']}`
+                          : `已封禁 ${preflightReport.reasonBuckets['banned']}`}
                       </span>
                     )}
                     {preflightReport.reasonBuckets['cant-upgrade'] > 0 && (
                       <span className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 inline-flex items-center gap-1">
                         <AlertTriangle className="h-2.5 w-2.5" />
-                        {isEn ? `Can't upgrade: ${preflightReport.reasonBuckets['cant-upgrade']}` : `不可升级 ${preflightReport.reasonBuckets['cant-upgrade']}`}
+                        {isEn
+                          ? `Can't upgrade: ${preflightReport.reasonBuckets['cant-upgrade']}`
+                          : `不可升级 ${preflightReport.reasonBuckets['cant-upgrade']}`}
                       </span>
                     )}
                     {preflightReport.reasonBuckets['unknown-status'] > 0 && (
                       <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 inline-flex items-center gap-1">
                         <AlertTriangle className="h-2.5 w-2.5" />
-                        {isEn ? `Unknown status: ${preflightReport.reasonBuckets['unknown-status']}` : `状态未知 ${preflightReport.reasonBuckets['unknown-status']}`}
+                        {isEn
+                          ? `Unknown status: ${preflightReport.reasonBuckets['unknown-status']}`
+                          : `状态未知 ${preflightReport.reasonBuckets['unknown-status']}`}
                       </span>
                     )}
                   </div>
@@ -1155,8 +1309,7 @@ export function SubscriptionPage() {
                   <p className="text-xs text-amber-600 dark:text-amber-400">
                     {isEn
                       ? 'No eligible accounts. Run "Check Accounts" on the accounts page first to get latest status.'
-                      : '无可升级账号。建议先在账户管理页"批量检查"获取最新状态。'
-                    }
+                      : '无可升级账号。建议先在账户管理页"批量检查"获取最新状态。'}
                   </p>
                 )}
               </CardContent>
@@ -1182,15 +1335,18 @@ export function SubscriptionPage() {
                 </Button>
                 <span className="text-xs text-muted-foreground">
                   {availablePlans.length > 0
-                    ? (isEn ? `${availablePlans.length} plans available` : `已加载 ${availablePlans.length} 个计划`)
-                    : (isEn ? 'Click to load available subscription plans' : '点击加载可用订阅计划')
-                  }
+                    ? isEn
+                      ? `${availablePlans.length} plans available`
+                      : `已加载 ${availablePlans.length} 个计划`
+                    : isEn
+                      ? 'Click to load available subscription plans'
+                      : '点击加载可用订阅计划'}
                 </span>
               </div>
 
               {availablePlans.length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {availablePlans.map(plan => (
+                  {availablePlans.map((plan) => (
                     <button
                       key={plan.qSubscriptionType}
                       onClick={() => setSelectedPlanType(plan.qSubscriptionType)}
@@ -1225,16 +1381,16 @@ export function SubscriptionPage() {
                 ) : (
                   <CreditCard className="h-4 w-4 mr-1" />
                 )}
-                {isEn
-                  ? `Fetch Links (${upgradeableCount})`
-                  : `获取链接 (${upgradeableCount})`
-                }
+                {isEn ? `Fetch Links (${upgradeableCount})` : `获取链接 (${upgradeableCount})`}
               </Button>
 
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => { setLinks([]); setSelectedLinkIds(new Set()) }}
+                onClick={() => {
+                  setLinks([])
+                  setSelectedLinkIds(new Set())
+                }}
                 disabled={isFetching || links.length === 0}
                 title={isEn ? 'Clear results' : '清空结果'}
               >
@@ -1247,10 +1403,20 @@ export function SubscriptionPage() {
                 variant="outline"
                 size="sm"
                 onClick={handleValidateLinks}
-                disabled={isFetching || isValidatingLinks || links.filter(l => l.status === 'success').length === 0}
-                title={isEn ? 'Detect expired links (>15min old)' : '检测过期链接（生成超过 15 分钟）'}
+                disabled={
+                  isFetching ||
+                  isValidatingLinks ||
+                  links.filter((l) => l.status === 'success').length === 0
+                }
+                title={
+                  isEn ? 'Detect expired links (>15min old)' : '检测过期链接（生成超过 15 分钟）'
+                }
               >
-                {isValidatingLinks ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                {isValidatingLinks ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                )}
                 {isEn ? 'Validate' : '检测有效性'}
               </Button>
 
@@ -1259,12 +1425,15 @@ export function SubscriptionPage() {
                 variant="outline"
                 size="sm"
                 onClick={handleDeleteFailed}
-                disabled={isFetching || links.filter(l => l.status === 'error' || l.status === 'expired').length === 0}
+                disabled={
+                  isFetching ||
+                  links.filter((l) => l.status === 'error' || l.status === 'expired').length === 0
+                }
                 title={isEn ? 'Remove failed and expired links' : '移除失败和过期的链接'}
               >
                 <Trash2 className="h-4 w-4 mr-1" />
-                {isEn ? 'Remove Failed' : '清失败'}
-                {' '}({links.filter(l => l.status === 'error' || l.status === 'expired').length})
+                {isEn ? 'Remove Failed' : '清失败'} (
+                {links.filter((l) => l.status === 'error' || l.status === 'expired').length})
               </Button>
 
               {/* 多选辅助操作（仅有结果时显示） */}
@@ -1294,14 +1463,17 @@ export function SubscriptionPage() {
 
                   {/* 按状态快速选择 */}
                   <div className="relative inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-dashed">
-                    <span className="text-[10px] text-muted-foreground">{isEn ? 'Pick:' : '选择:'}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {isEn ? 'Pick:' : '选择:'}
+                    </span>
                     <button
                       className="text-[10px] px-1.5 py-0.5 rounded hover:bg-green-500/15 text-green-700 dark:text-green-300"
                       onClick={() => selectByStatus('success')}
                       disabled={isFetching}
                       title={isEn ? 'Add all "Success" to selection' : '把"成功"项加入选择'}
                     >
-                      ✓ {isEn ? 'Success' : '成功'} ({links.filter(l => l.status === 'success').length})
+                      ✓ {isEn ? 'Success' : '成功'} (
+                      {links.filter((l) => l.status === 'success').length})
                     </button>
                     <button
                       className="text-[10px] px-1.5 py-0.5 rounded hover:bg-amber-500/15 text-amber-700 dark:text-amber-300"
@@ -1309,7 +1481,8 @@ export function SubscriptionPage() {
                       disabled={isFetching}
                       title={isEn ? 'Add all "Expired" to selection' : '把"过期"项加入选择'}
                     >
-                      ⚠ {isEn ? 'Expired' : '过期'} ({links.filter(l => l.status === 'expired').length})
+                      ⚠ {isEn ? 'Expired' : '过期'} (
+                      {links.filter((l) => l.status === 'expired').length})
                     </button>
                     <button
                       className="text-[10px] px-1.5 py-0.5 rounded hover:bg-red-500/15 text-red-700 dark:text-red-300"
@@ -1317,7 +1490,8 @@ export function SubscriptionPage() {
                       disabled={isFetching}
                       title={isEn ? 'Add all "Error" to selection' : '把"失败"项加入选择'}
                     >
-                      ✗ {isEn ? 'Error' : '失败'} ({links.filter(l => l.status === 'error').length})
+                      ✗ {isEn ? 'Error' : '失败'} (
+                      {links.filter((l) => l.status === 'error').length})
                     </button>
                   </div>
 
@@ -1328,10 +1502,16 @@ export function SubscriptionPage() {
                       size="sm"
                       onClick={handleBatchDelete}
                       className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                      title={isEn ? `Delete ${selectedLinkIds.size} selected links` : `删除选中的 ${selectedLinkIds.size} 个链接`}
+                      title={
+                        isEn
+                          ? `Delete ${selectedLinkIds.size} selected links`
+                          : `删除选中的 ${selectedLinkIds.size} 个链接`
+                      }
                     >
                       <Trash2 className="h-4 w-4 mr-1" />
-                      {isEn ? `Delete Selected (${selectedLinkIds.size})` : `删除选中 (${selectedLinkIds.size})`}
+                      {isEn
+                        ? `Delete Selected (${selectedLinkIds.size})`
+                        : `删除选中 (${selectedLinkIds.size})`}
                     </Button>
                   )}
                 </>
@@ -1420,7 +1600,7 @@ export function SubscriptionPage() {
                   {isFetching && (
                     <span className="flex items-center gap-1">
                       <Loader2 className="h-3 w-3 animate-spin" />
-                      {links.filter(l => l.status === 'pending' || l.status === 'loading').length}
+                      {links.filter((l) => l.status === 'pending' || l.status === 'loading').length}
                     </span>
                   )}
                 </div>
@@ -1440,8 +1620,12 @@ export function SubscriptionPage() {
                     disabled={links.length === 0}
                     title={
                       selectedLinkIds.size === links.length && links.length > 0
-                        ? (isEn ? 'Deselect all' : '取消全选')
-                        : (isEn ? 'Select all' : '全选')
+                        ? isEn
+                          ? 'Deselect all'
+                          : '取消全选'
+                        : isEn
+                          ? 'Select all'
+                          : '全选'
                     }
                   >
                     {selectedLinkIds.size === links.length && links.length > 0 ? (
@@ -1464,7 +1648,7 @@ export function SubscriptionPage() {
                     <div
                       key={link.accountId}
                       className={cn(
-                        "flex items-center gap-3 py-2 px-2 border-b last:border-b-0 hover:bg-muted/50 transition-colors",
+                        'flex items-center gap-3 py-2 px-2 border-b last:border-b-0 hover:bg-muted/50 transition-colors',
                         selectedLinkIds.has(link.accountId) && 'bg-primary/5'
                       )}
                     >
@@ -1481,7 +1665,9 @@ export function SubscriptionPage() {
                       </button>
 
                       {/* 序号 */}
-                      <span className="w-8 text-center text-xs text-muted-foreground">{idx + 1}</span>
+                      <span className="w-8 text-center text-xs text-muted-foreground">
+                        {idx + 1}
+                      </span>
 
                       {/* 邮箱 */}
                       <span className="flex-1 text-sm truncate" title={link.email}>
@@ -1491,7 +1677,9 @@ export function SubscriptionPage() {
                       {/* 状态 */}
                       <span className="w-20 flex justify-center">
                         {link.status === 'pending' && (
-                          <span className="text-xs text-muted-foreground">{isEn ? 'Pending' : '等待中'}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {isEn ? 'Pending' : '等待中'}
+                          </span>
                         )}
                         {link.status === 'loading' && (
                           <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
@@ -1500,14 +1688,20 @@ export function SubscriptionPage() {
                           <span className="inline-flex items-center gap-1">
                             <CheckCircle className="h-4 w-4 text-green-500" />
                             {link.generatedAt && (
-                              <span className="text-[9px] text-muted-foreground tabular-nums" title="生成至今分钟数">
+                              <span
+                                className="text-[9px] text-muted-foreground tabular-nums"
+                                title="生成至今分钟数"
+                              >
                                 {Math.round((Date.now() - link.generatedAt) / 60000)}m
                               </span>
                             )}
                           </span>
                         )}
                         {link.status === 'expired' && (
-                          <span className="inline-flex items-center gap-1 text-amber-600" title="可能已过期">
+                          <span
+                            className="inline-flex items-center gap-1 text-amber-600"
+                            title="可能已过期"
+                          >
                             <AlertTriangle className="h-4 w-4" />
                             <span className="text-[9px]">过期</span>
                           </span>
@@ -1549,7 +1743,10 @@ export function SubscriptionPage() {
                           </button>
                         )}
                         {link.status === 'error' && (
-                          <span className="text-[10px] text-red-500 truncate max-w-[80px]" title={link.error}>
+                          <span
+                            className="text-[10px] text-red-500 truncate max-w-[80px]"
+                            title={link.error}
+                          >
                             {link.error}
                           </span>
                         )}
@@ -1568,13 +1765,12 @@ export function SubscriptionPage() {
                 <CreditCard className="h-12 w-12 mx-auto mb-3 opacity-30" />
                 <p className="text-sm">
                   {upgradeableCount > 0
-                    ? (isEn
-                        ? `${upgradeableCount} FREE accounts available for upgrade. Click "Fetch Links" to start.`
-                        : `有 ${upgradeableCount} 个 FREE 账户可升级。点击"获取链接"开始。`)
-                    : (isEn
-                        ? 'No FREE tier accounts found. Select accounts in the Accounts page first.'
-                        : '未找到 FREE 账户。请先在账户管理页面选择账户。')
-                  }
+                    ? isEn
+                      ? `${upgradeableCount} FREE accounts available for upgrade. Click "Fetch Links" to start.`
+                      : `有 ${upgradeableCount} 个 FREE 账户可升级。点击"获取链接"开始。`
+                    : isEn
+                      ? 'No FREE tier accounts found. Select accounts in the Accounts page first.'
+                      : '未找到 FREE 账户。请先在账户管理页面选择账户。'}
                 </p>
               </CardContent>
             </Card>
@@ -1587,7 +1783,8 @@ export function SubscriptionPage() {
 
 // ============ 订阅管理 Tab：批量取消 + 批量关超额 ============
 
-type AccountType = ReturnType<typeof useAccountsStore.getState>['accounts'] extends Map<string, infer T> ? T : never
+type AccountType =
+  ReturnType<typeof useAccountsStore.getState>['accounts'] extends Map<string, infer T> ? T : never
 
 interface ManageSubscriptionsTabProps {
   getAllSubscribed: () => Array<AccountType | undefined>
@@ -1596,7 +1793,12 @@ interface ManageSubscriptionsTabProps {
   isEn: boolean
 }
 
-function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, isEn }: ManageSubscriptionsTabProps): React.ReactNode {
+function ManageSubscriptionsTab({
+  getAllSubscribed,
+  updateAccount,
+  concurrency,
+  isEn
+}: ManageSubscriptionsTabProps): React.ReactNode {
   const subscribed = getAllSubscribed()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isBatchOpening, setIsBatchOpening] = useState(false)
@@ -1617,14 +1819,17 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
 
   /** 批量打开订阅门户（用于取消订阅） */
   const handleBatchOpenPortal = async (mode: 'selected' | 'all'): Promise<void> => {
-    const targets = mode === 'selected'
-      ? subscribed.filter((a) => a && selectedIds.has(a.id))
-      : subscribed
+    const targets =
+      mode === 'selected' ? subscribed.filter((a) => a && selectedIds.has(a.id)) : subscribed
     if (targets.length === 0) return
-    if (!confirm(isEn
-      ? `Open ${targets.length} subscription portal pages? (in browser incognito mode)`
-      : `打开 ${targets.length} 个订阅门户页面？（浏览器无痕模式）`
-    )) return
+    if (
+      !confirm(
+        isEn
+          ? `Open ${targets.length} subscription portal pages? (in browser incognito mode)`
+          : `打开 ${targets.length} 个订阅门户页面？（浏览器无痕模式）`
+      )
+    )
+      return
 
     setIsBatchOpening(true)
     try {
@@ -1665,15 +1870,21 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
 
   /** 批量关闭超额 */
   const handleBatchDisableOverage = async (mode: 'selected' | 'all'): Promise<void> => {
-    const targets = (mode === 'selected'
-      ? subscribed.filter((a) => a && selectedIds.has(a.id))
-      : subscribed
+    const targets = (
+      mode === 'selected' ? subscribed.filter((a) => a && selectedIds.has(a.id)) : subscribed
     ).filter((a) => a?.usage?.resourceDetail?.overageEnabled === true)
     if (targets.length === 0) {
       alert(isEn ? 'No accounts with overage enabled' : '没有开启超额的账号')
       return
     }
-    if (!confirm(isEn ? `Disable overage on ${targets.length} accounts?` : `关闭 ${targets.length} 个账号的超额？`)) return
+    if (
+      !confirm(
+        isEn
+          ? `Disable overage on ${targets.length} accounts?`
+          : `关闭 ${targets.length} 个账号的超额？`
+      )
+    )
+      return
 
     setIsBatchDisablingOverage(true)
     try {
@@ -1722,8 +1933,7 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
           <p className="text-sm">
             {isEn
               ? 'No subscribed accounts found. Run "Check Accounts" first to refresh status.'
-              : '未发现已订阅账号。请先在账户页"批量检查"刷新状态。'
-            }
+              : '未发现已订阅账号。请先在账户页"批量检查"刷新状态。'}
           </p>
         </CardContent>
       </Card>
@@ -1731,7 +1941,9 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
   }
 
   const selectedCount = selectedIds.size
-  const overageEnabledCount = subscribed.filter((a) => a?.usage?.resourceDetail?.overageEnabled === true).length
+  const overageEnabledCount = subscribed.filter(
+    (a) => a?.usage?.resourceDetail?.overageEnabled === true
+  ).length
 
   return (
     <>
@@ -1747,8 +1959,7 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
           <p className="text-xs text-muted-foreground">
             {isEn
               ? 'Bulk open subscription portals in browser (cancel/manage there), or bulk disable overage.'
-              : '批量打开订阅门户（在浏览器内取消/管理），或批量关闭超额。'
-            }
+              : '批量打开订阅门户（在浏览器内取消/管理），或批量关闭超额。'}
           </p>
         </CardContent>
       </Card>
@@ -1761,8 +1972,14 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
             onClick={() => handleBatchOpenPortal('selected')}
             disabled={isBatchOpening || selectedCount === 0}
           >
-            {isBatchOpening ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <ExternalLink className="h-4 w-4 mr-1" />}
-            {isEn ? `Open Portal (Selected: ${selectedCount})` : `打开门户（已选 ${selectedCount}）`}
+            {isBatchOpening ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <ExternalLink className="h-4 w-4 mr-1" />
+            )}
+            {isEn
+              ? `Open Portal (Selected: ${selectedCount})`
+              : `打开门户（已选 ${selectedCount}）`}
           </Button>
           <Button
             size="sm"
@@ -1782,7 +1999,11 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
             onClick={() => handleBatchDisableOverage('selected')}
             disabled={isBatchDisablingOverage || selectedCount === 0}
           >
-            {isBatchDisablingOverage ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Ban className="h-4 w-4 mr-1" />}
+            {isBatchDisablingOverage ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <Ban className="h-4 w-4 mr-1" />
+            )}
             {isEn ? `Disable Overage (Selected)` : '关超额（已选）'}
           </Button>
           <Button
@@ -1792,14 +2013,19 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
             disabled={isBatchDisablingOverage || overageEnabledCount === 0}
           >
             <Ban className="h-4 w-4 mr-1" />
-            {isEn ? `Disable All Overage (${overageEnabledCount})` : `关全部超额 (${overageEnabledCount})`}
+            {isEn
+              ? `Disable All Overage (${overageEnabledCount})`
+              : `关全部超额 (${overageEnabledCount})`}
           </Button>
 
           <span className="ml-auto text-xs text-muted-foreground">
             {selectedCount > 0
-              ? (isEn ? `${selectedCount} of ${subscribed.length} selected` : `已选 ${selectedCount} / ${subscribed.length}`)
-              : (isEn ? `${subscribed.length} subscribed accounts` : `${subscribed.length} 个已订阅账号`)
-            }
+              ? isEn
+                ? `${selectedCount} of ${subscribed.length} selected`
+                : `已选 ${selectedCount} / ${subscribed.length}`
+              : isEn
+                ? `${subscribed.length} subscribed accounts`
+                : `${subscribed.length} 个已订阅账号`}
           </span>
         </CardContent>
       </Card>
@@ -1809,12 +2035,13 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
         <CardContent className="py-0 px-0">
           <div className="flex items-center gap-3 py-2 px-3 border-b text-xs font-medium text-muted-foreground bg-muted/30">
             <button onClick={toggleSelectAll} className="flex-shrink-0">
-              {selectedIds.size === subscribed.length && subscribed.length > 0
-                ? <CheckSquare className="h-3.5 w-3.5 text-primary" />
-                : selectedIds.size > 0
-                  ? <Minus className="h-3.5 w-3.5 text-primary" />
-                  : <Square className="h-3.5 w-3.5" />
-              }
+              {selectedIds.size === subscribed.length && subscribed.length > 0 ? (
+                <CheckSquare className="h-3.5 w-3.5 text-primary" />
+              ) : selectedIds.size > 0 ? (
+                <Minus className="h-3.5 w-3.5 text-primary" />
+              ) : (
+                <Square className="h-3.5 w-3.5" />
+              )}
             </button>
             <span className="w-8 text-center">#</span>
             <span className="flex-1">{isEn ? 'Email' : '邮箱'}</span>
@@ -1833,7 +2060,7 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
           />
 
           {/* 占位防止下面 dead code 被误删（实际渲染走 SubscribedAccountsVirtualList） */}
-          {false && (
+          {SHOW_LEGACY_SUBSCRIBED_LIST_UI && (
             <div className="max-h-[60vh] overflow-y-auto">
               {subscribed.map((acc, idx) => {
                 if (!acc) return null
@@ -1852,70 +2079,86 @@ function ManageSubscriptionsTab({ getAllSubscribed, updateAccount, concurrency, 
                     )}
                   >
                     <button onClick={() => toggleSelect(acc.id)} className="flex-shrink-0">
-                    {selected
-                      ? <CheckSquare className="h-3.5 w-3.5 text-primary" />
-                      : <Square className="h-3.5 w-3.5" />
-                    }
-                  </button>
-                  <span className="w-8 text-center text-muted-foreground">{idx + 1}</span>
-                  <span className="flex-1 truncate" title={acc.email}>{acc.email}</span>
-                  <span className="w-28 text-center">
-                    <span className={cn(
-                      'inline-block px-2 py-0.5 rounded text-[10px] font-medium',
-                      planName.toUpperCase().includes('PRO+') || planName.toUpperCase().includes('PRO_PLUS')
-                        ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
-                        : planName.toUpperCase().includes('POWER')
-                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                          : planName.toUpperCase().includes('PRO')
-                            ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
-                            : 'bg-muted text-muted-foreground'
-                    )}>
-                      {planName}
-                    </span>
-                  </span>
-                  <span className="w-20 text-center text-muted-foreground">
-                    {daysLeft != null
-                      ? <span className={cn(
-                          daysLeft <= 3 ? 'text-red-500' : daysLeft <= 7 ? 'text-amber-500' : ''
-                        )}>{isEn ? `${daysLeft}d` : `${daysLeft} 天`}</span>
-                      : '-'
-                    }
-                  </span>
-                  <span className="w-24 text-center">
-                    {overageEnabled
-                      ? <span className="text-green-600 text-[10px]">{isEn ? 'ENABLED' : '已开启'}</span>
-                      : overageCapable
-                        ? <span className="text-muted-foreground text-[10px]">{isEn ? 'DISABLED' : '未开启'}</span>
-                        : <span className="text-muted-foreground text-[10px]">-</span>
-                    }
-                  </span>
-                  <span className="w-32 flex justify-center gap-1">
-                    <button
-                      onClick={async () => {
-                        const r = await window.api.accountGetSubscriptionUrl(
-                          acc.credentials.accessToken,
-                          undefined,
-                          acc.credentials?.region,
-                          acc.profileArn,
-                          acc.machineId,
-                          acc.credentials?.provider || acc.idp,
-                          acc.credentials?.authMethod,
-                          acc.id
-                        )
-                        if (r.success && r.url) {
-                          await window.api.openSubscriptionWindow(r.url)
-                        } else {
-                          alert(isEn ? `Failed: ${r.error}` : `失败: ${r.error}`)
-                        }
-                      }}
-                      className="px-2 py-1 rounded text-[10px] bg-primary/10 text-primary hover:bg-primary/20"
-                      title={isEn ? 'Open subscription portal' : '打开订阅门户'}
-                    >
-                      <ExternalLink className="h-3 w-3 inline mr-1" />
-                      {isEn ? 'Manage' : '管理'}
+                      {selected ? (
+                        <CheckSquare className="h-3.5 w-3.5 text-primary" />
+                      ) : (
+                        <Square className="h-3.5 w-3.5" />
+                      )}
                     </button>
-                  </span>
-                </div>
+                    <span className="w-8 text-center text-muted-foreground">{idx + 1}</span>
+                    <span className="flex-1 truncate" title={acc.email}>
+                      {acc.email}
+                    </span>
+                    <span className="w-28 text-center">
+                      <span
+                        className={cn(
+                          'inline-block px-2 py-0.5 rounded text-[10px] font-medium',
+                          planName.toUpperCase().includes('PRO+') ||
+                            planName.toUpperCase().includes('PRO_PLUS')
+                            ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
+                            : planName.toUpperCase().includes('POWER')
+                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                              : planName.toUpperCase().includes('PRO')
+                                ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
+                                : 'bg-muted text-muted-foreground'
+                        )}
+                      >
+                        {planName}
+                      </span>
+                    </span>
+                    <span className="w-20 text-center text-muted-foreground">
+                      {daysLeft != null ? (
+                        <span
+                          className={cn(
+                            daysLeft <= 3 ? 'text-red-500' : daysLeft <= 7 ? 'text-amber-500' : ''
+                          )}
+                        >
+                          {isEn ? `${daysLeft}d` : `${daysLeft} 天`}
+                        </span>
+                      ) : (
+                        '-'
+                      )}
+                    </span>
+                    <span className="w-24 text-center">
+                      {overageEnabled ? (
+                        <span className="text-green-600 text-[10px]">
+                          {isEn ? 'ENABLED' : '已开启'}
+                        </span>
+                      ) : overageCapable ? (
+                        <span className="text-muted-foreground text-[10px]">
+                          {isEn ? 'DISABLED' : '未开启'}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-[10px]">-</span>
+                      )}
+                    </span>
+                    <span className="w-32 flex justify-center gap-1">
+                      <button
+                        onClick={async () => {
+                          const r = await window.api.accountGetSubscriptionUrl(
+                            acc.credentials.accessToken,
+                            undefined,
+                            acc.credentials?.region,
+                            acc.profileArn,
+                            acc.machineId,
+                            acc.credentials?.provider || acc.idp,
+                            acc.credentials?.authMethod,
+                            acc.id
+                          )
+                          if (r.success && r.url) {
+                            await window.api.openSubscriptionWindow(r.url)
+                          } else {
+                            alert(isEn ? `Failed: ${r.error}` : `失败: ${r.error}`)
+                          }
+                        }}
+                        className="px-2 py-1 rounded text-[10px] bg-primary/10 text-primary hover:bg-primary/20"
+                        title={isEn ? 'Open subscription portal' : '打开订阅门户'}
+                      >
+                        <ExternalLink className="h-3 w-3 inline mr-1" />
+                        {isEn ? 'Manage' : '管理'}
+                      </button>
+                    </span>
+                  </div>
                 )
               })}
             </div>
@@ -1937,8 +2180,14 @@ interface SubscribedListProps {
   isEn: boolean
 }
 
-function SubscribedAccountsVirtualList({ subscribed, selectedIds, toggleSelect, updateAccount, isEn }: SubscribedListProps): React.ReactNode {
-  void updateAccount  // 暂未使用（保留参数对齐 API）
+function SubscribedAccountsVirtualList({
+  subscribed,
+  selectedIds,
+  toggleSelect,
+  updateAccount,
+  isEn
+}: SubscribedListProps): React.ReactNode {
+  void updateAccount // 暂未使用（保留参数对齐 API）
   const parentRef = useRef<HTMLDivElement>(null)
   const ROW_HEIGHT = 44
   const validItems = useMemo(() => subscribed.filter((a): a is AccountType => !!a), [subscribed])
@@ -2001,7 +2250,13 @@ function SubscribedAccountsVirtualList({ subscribed, selectedIds, toggleSelect, 
   )
 }
 
-function SubscribedRow({ acc, idx, selected, onToggleSelect, isEn }: {
+function SubscribedRow({
+  acc,
+  idx,
+  selected,
+  onToggleSelect,
+  isEn
+}: {
   acc: AccountType
   idx: number
   selected: boolean
@@ -2021,38 +2276,51 @@ function SubscribedRow({ acc, idx, selected, onToggleSelect, isEn }: {
       )}
     >
       <button onClick={onToggleSelect} className="flex-shrink-0">
-        {selected
-          ? <CheckSquare className="h-3.5 w-3.5 text-primary" />
-          : <Square className="h-3.5 w-3.5" />
-        }
+        {selected ? (
+          <CheckSquare className="h-3.5 w-3.5 text-primary" />
+        ) : (
+          <Square className="h-3.5 w-3.5" />
+        )}
       </button>
       <span className="w-8 text-center text-muted-foreground">{idx + 1}</span>
-      <span className="flex-1 truncate" title={acc.email}>{acc.email}</span>
+      <span className="flex-1 truncate" title={acc.email}>
+        {acc.email}
+      </span>
       <span className="w-28 text-center">
-        <span className={cn(
-          'inline-block px-2 py-0.5 rounded text-[10px] font-medium',
-          planName.toUpperCase().includes('PRO+') || planName.toUpperCase().includes('PRO_PLUS')
-            ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
-            : planName.toUpperCase().includes('POWER')
-              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-              : planName.toUpperCase().includes('PRO')
-                ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
-                : 'bg-muted text-muted-foreground'
-        )}>{planName}</span>
+        <span
+          className={cn(
+            'inline-block px-2 py-0.5 rounded text-[10px] font-medium',
+            planName.toUpperCase().includes('PRO+') || planName.toUpperCase().includes('PRO_PLUS')
+              ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300'
+              : planName.toUpperCase().includes('POWER')
+                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                : planName.toUpperCase().includes('PRO')
+                  ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
+                  : 'bg-muted text-muted-foreground'
+          )}
+        >
+          {planName}
+        </span>
       </span>
       <span className="w-20 text-center text-muted-foreground">
-        {daysLeft != null
-          ? <span className={cn(daysLeft <= 3 ? 'text-red-500' : daysLeft <= 7 ? 'text-amber-500' : '')}>{isEn ? `${daysLeft}d` : `${daysLeft} 天`}</span>
-          : '-'
-        }
+        {daysLeft != null ? (
+          <span
+            className={cn(daysLeft <= 3 ? 'text-red-500' : daysLeft <= 7 ? 'text-amber-500' : '')}
+          >
+            {isEn ? `${daysLeft}d` : `${daysLeft} 天`}
+          </span>
+        ) : (
+          '-'
+        )}
       </span>
       <span className="w-24 text-center">
-        {overageEnabled
-          ? <span className="text-green-600 text-[10px]">{isEn ? 'ENABLED' : '已开启'}</span>
-          : overageCapable
-            ? <span className="text-muted-foreground text-[10px]">{isEn ? 'DISABLED' : '未开启'}</span>
-            : <span className="text-muted-foreground text-[10px]">-</span>
-        }
+        {overageEnabled ? (
+          <span className="text-green-600 text-[10px]">{isEn ? 'ENABLED' : '已开启'}</span>
+        ) : overageCapable ? (
+          <span className="text-muted-foreground text-[10px]">{isEn ? 'DISABLED' : '未开启'}</span>
+        ) : (
+          <span className="text-muted-foreground text-[10px]">-</span>
+        )}
       </span>
       <span className="w-32 flex justify-center gap-1">
         <button

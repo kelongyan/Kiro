@@ -4,7 +4,7 @@ export interface KiroSettingsData {
   steeringFiles: string[]
 }
 
-function getKiroPaths(homeDir: string): {
+export function getKiroPaths(homeDir: string): {
   kiroSettingsPath: string
   kiroSteeringPath: string
   kiroMcpUserPath: string

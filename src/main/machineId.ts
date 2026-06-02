@@ -178,10 +178,19 @@ export async function checkAdminPrivilege(): Promise<boolean> {
               stdio: ['pipe', 'pipe', 'ignore']
             })
             const isAdmin = result.trim().toLowerCase() === 'true'
-            console.log('[MachineId] PowerShell admin check result:', isAdmin, '(path:', psPath, ')')
+            console.log(
+              '[MachineId] PowerShell admin check result:',
+              isAdmin,
+              '(path:',
+              psPath,
+              ')'
+            )
             return isAdmin
           } catch (error) {
-            console.log('[MachineId] PowerShell admin check failed:', error instanceof Error ? error.message : error)
+            console.log(
+              '[MachineId] PowerShell admin check failed:',
+              error instanceof Error ? error.message : error
+            )
           }
         } else {
           console.log('[MachineId] PowerShell not found, skipping PS admin check')
@@ -297,7 +306,10 @@ async function getWindowsMachineId(): Promise<MachineIdResult> {
       return { success: true, machineId: match[1].toLowerCase() }
     }
   } catch (error) {
-    console.log('[MachineId] reg query failed, trying PowerShell:', error instanceof Error ? error.message : error)
+    console.log(
+      '[MachineId] reg query failed, trying PowerShell:',
+      error instanceof Error ? error.message : error
+    )
   }
 
   // 方法2: 使用 PowerShell 读取注册表（某些 Win11 环境下更可靠，多路径探测）
@@ -313,17 +325,17 @@ async function getWindowsMachineId(): Promise<MachineIdResult> {
         return { success: true, machineId }
       }
     } catch (error) {
-      console.log('[MachineId] PowerShell failed, trying WMIC:', error instanceof Error ? error.message : error)
+      console.log(
+        '[MachineId] PowerShell failed, trying WMIC:',
+        error instanceof Error ? error.message : error
+      )
     }
   }
 
   // 方法3: 使用 WMIC 获取 UUID（备用方案）
   try {
-    const { stdout } = await execAsync(
-      'wmic csproduct get UUID',
-      { timeout: 5000 }
-    )
-    const lines = stdout.split('\n').filter(line => line.trim() && !line.includes('UUID'))
+    const { stdout } = await execAsync('wmic csproduct get UUID', { timeout: 5000 })
+    const lines = stdout.split('\n').filter((line) => line.trim() && !line.includes('UUID'))
     if (lines.length > 0) {
       const uuid = lines[0].trim().toLowerCase()
       if (uuid && uuid !== 'ffffffff-ffff-ffff-ffff-ffffffffffff') {
@@ -368,9 +380,12 @@ async function getMacOSMachineId(): Promise<MachineIdResult> {
         return { success: true, machineId: overrideId }
       }
     }
-    
+
     // 检查 Kiro IDE 的 machineid 文件
-    const kiroMachineIdPath = path.join(process.env.HOME || '', 'Library/Application Support/Kiro/machineid')
+    const kiroMachineIdPath = path.join(
+      process.env.HOME || '',
+      'Library/Application Support/Kiro/machineid'
+    )
     if (fs.existsSync(kiroMachineIdPath)) {
       const kiroId = fs.readFileSync(kiroMachineIdPath, 'utf-8').trim()
       if (kiroId && isValidMachineId(kiroId)) {
@@ -400,12 +415,15 @@ async function setMacOSMachineId(newMachineId: string): Promise<MachineIdResult>
   // macOS 的硬件 UUID 无法直接修改
   // 我们写入本应用的 override 文件，并同步到 Kiro IDE 的 machineid 文件
   const overridePath = path.join(getUserDataPath(), 'machine-id-override')
-  const kiroMachineIdPath = path.join(process.env.HOME || '', 'Library/Application Support/Kiro/machineid')
+  const kiroMachineIdPath = path.join(
+    process.env.HOME || '',
+    'Library/Application Support/Kiro/machineid'
+  )
 
   try {
     // 写入本应用的 override 文件
     fs.writeFileSync(overridePath, newMachineId, 'utf-8')
-    
+
     // 同步到 Kiro IDE 的 machineid 文件
     try {
       const kiroDir = path.dirname(kiroMachineIdPath)
@@ -418,7 +436,7 @@ async function setMacOSMachineId(newMachineId: string): Promise<MachineIdResult>
       console.warn('[MachineId] Failed to sync to Kiro IDE:', syncError)
       // 同步失败不影响主流程
     }
-    
+
     return { success: true, machineId: newMachineId }
   } catch (error) {
     return {
@@ -487,21 +505,24 @@ async function setLinuxMachineId(newMachineId: string): Promise<MachineIdResult>
  * 使用 pkexec 以 root 权限写入 Linux 机器码
  * 这种方式不需要重启整个应用，避免了 Wayland 显示授权问题
  */
-async function setLinuxMachineIdWithPkexec(rawId: string, filePath: string): Promise<MachineIdResult> {
+async function setLinuxMachineIdWithPkexec(
+  rawId: string,
+  filePath: string
+): Promise<MachineIdResult> {
   const sudoCommands = ['pkexec', 'gksudo', 'kdesudo']
-  
+
   for (const cmd of sudoCommands) {
     try {
       // 检查命令是否存在
       execSync(`which ${cmd}`, { stdio: 'ignore' })
-      
+
       // 使用 pkexec/gksudo 调用 tee 命令写入文件
       // tee 命令可以以 root 权限写入文件
       const command = `echo "${rawId}" | ${cmd} tee "${filePath}" > /dev/null`
       console.log(`[MachineId] Running: ${cmd} to write machine-id`)
-      
+
       await execAsync(command)
-      
+
       // 如果还有 /var/lib/dbus/machine-id，也更新它
       if (filePath === '/etc/machine-id') {
         const dbusPath = '/var/lib/dbus/machine-id'
@@ -514,21 +535,25 @@ async function setLinuxMachineIdWithPkexec(rawId: string, filePath: string): Pro
           }
         }
       }
-      
+
       return { success: true, machineId: rawId }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : ''
       console.log(`[MachineId] ${cmd} failed:`, errorMsg)
-      
+
       // 用户取消授权
-      if (errorMsg.includes('dismissed') || errorMsg.includes('Not authorized') || errorMsg.includes('126')) {
+      if (
+        errorMsg.includes('dismissed') ||
+        errorMsg.includes('Not authorized') ||
+        errorMsg.includes('126')
+      ) {
         return { success: false, error: '用户取消了授权' }
       }
       // 继续尝试下一个命令
       continue
     }
   }
-  
+
   return { success: false, error: '没有可用的权限提升工具', requiresAdmin: true }
 }
 
@@ -544,10 +569,7 @@ function formatAsUUID(hex: string): string {
 /**
  * 备份机器码到文件
  */
-export async function backupMachineIdToFile(
-  machineId: string,
-  filePath: string
-): Promise<boolean> {
+export async function backupMachineIdToFile(machineId: string, filePath: string): Promise<boolean> {
   try {
     const backupData = {
       machineId,
@@ -584,4 +606,3 @@ export async function restoreMachineIdFromFile(filePath: string): Promise<Machin
     }
   }
 }
-

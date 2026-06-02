@@ -25,8 +25,15 @@ export default defineConfig(
     },
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
-      ...eslintPluginReactRefresh.configs.vite.rules
+      ...eslintPluginReactRefresh.configs.vite.rules,
+      'react-refresh/only-export-components': ['error', { allowConstantExport: true }],
+      '@typescript-eslint/explicit-function-return-type': 'off'
     }
   },
-  eslintConfigPrettier
+  eslintConfigPrettier,
+  {
+    rules: {
+      'prettier/prettier': ['warn', { endOfLine: 'auto' }]
+    }
+  }
 )

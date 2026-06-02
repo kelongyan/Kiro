@@ -1,12 +1,32 @@
 import { useState, useEffect, useCallback } from 'react'
-import { 
-  Play, Square, RefreshCw, Copy, Check, Shield, Activity, 
-  AlertCircle, Globe, Loader2, FileText, Download, Key, 
-  Fingerprint, Server
+import {
+  Play,
+  Square,
+  RefreshCw,
+  Copy,
+  Check,
+  Shield,
+  Activity,
+  AlertCircle,
+  Globe,
+  Loader2,
+  FileText,
+  Download,
+  Key,
+  Fingerprint,
+  Server
 } from 'lucide-react'
-import { 
-  Button, Card, CardContent, CardDescription, CardHeader, 
-  CardTitle, Input, Label, Switch, Badge 
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  Switch,
+  Badge
 } from '../ui'
 import { useTranslation } from '../../hooks/useTranslation'
 import { cn } from '../../lib/utils'
@@ -40,7 +60,7 @@ interface CACertInfo {
 export function KProxyPanel() {
   const { t } = useTranslation()
   const isEn = t('common.unknown') === 'Unknown'
-  
+
   const [isRunning, setIsRunning] = useState(false)
   const [isInitialized, setIsInitialized] = useState(false)
   const [isInitializing, setIsInitializing] = useState(false)
@@ -57,14 +77,16 @@ export function KProxyPanel() {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [deviceIdCopied, setDeviceIdCopied] = useState(false)
-  const [recentRequests, setRecentRequests] = useState<Array<{
-    timestamp: number
-    host: string
-    method: string
-    path: string
-    isMitm: boolean
-    deviceIdReplaced: boolean
-  }>>([])
+  const [recentRequests, setRecentRequests] = useState<
+    Array<{
+      timestamp: number
+      host: string
+      method: string
+      path: string
+      isMitm: boolean
+      deviceIdReplaced: boolean
+    }>
+  >([])
   const [caInstalled, setCaInstalled] = useState<boolean | null>(null)
 
   // 检查 CA 证书是否已安装
@@ -82,7 +104,7 @@ export function KProxyPanel() {
     if (isInitialized || isInitializing) return
     setIsInitializing(true)
     setError(null)
-    
+
     try {
       const result = await window.api.kproxyInit()
       if (result.success) {
@@ -118,14 +140,19 @@ export function KProxyPanel() {
   // 监听事件
   useEffect(() => {
     const unsubRequest = window.api.onKproxyRequest((info) => {
-      setRecentRequests(prev => [{
-        timestamp: info.timestamp,
-        host: info.host,
-        method: info.method,
-        path: info.path,
-        isMitm: info.isMitm,
-        deviceIdReplaced: info.deviceIdReplaced
-      }, ...prev].slice(0, 50))
+      setRecentRequests((prev) =>
+        [
+          {
+            timestamp: info.timestamp,
+            host: info.host,
+            method: info.method,
+            path: info.path,
+            isMitm: info.isMitm,
+            deviceIdReplaced: info.deviceIdReplaced
+          },
+          ...prev
+        ].slice(0, 50)
+      )
     })
 
     const unsubStatus = window.api.onKproxyStatusChange((status) => {
@@ -259,7 +286,12 @@ export function KProxyPanel() {
         <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md flex items-center gap-2">
           <AlertCircle className="h-4 w-4" />
           <span className="text-sm">{error}</span>
-          <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={() => setError(null)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-6 px-2"
+            onClick={() => setError(null)}
+          >
             ✕
           </Button>
         </div>
@@ -272,10 +304,10 @@ export function KProxyPanel() {
             <div className="flex items-center gap-2">
               <Shield className="h-5 w-5 text-primary" />
               <CardTitle className="text-lg">K-Proxy MITM</CardTitle>
-              <Badge variant={isRunning ? 'default' : 'secondary'} className={cn(
-                "ml-2",
-                isRunning && "bg-green-500 hover:bg-green-600"
-              )}>
+              <Badge
+                variant={isRunning ? 'default' : 'secondary'}
+                className={cn('ml-2', isRunning && 'bg-green-500 hover:bg-green-600')}
+              >
                 {isRunning ? (
                   <span className="flex items-center gap-1">
                     <span className="relative flex h-2 w-2">
@@ -284,14 +316,14 @@ export function KProxyPanel() {
                     </span>
                     {isEn ? 'Running' : '运行中'}
                   </span>
-                ) : (isEn ? 'Stopped' : '已停止')}
+                ) : isEn ? (
+                  'Stopped'
+                ) : (
+                  '已停止'
+                )}
               </Badge>
             </div>
-            <Button
-              onClick={toggleProxy}
-              variant={isRunning ? 'destructive' : 'default'}
-              size="sm"
-            >
+            <Button onClick={toggleProxy} variant={isRunning ? 'destructive' : 'default'} size="sm">
               {isRunning ? (
                 <>
                   <Square className="h-4 w-4 mr-1" />
@@ -306,8 +338,8 @@ export function KProxyPanel() {
             </Button>
           </div>
           <CardDescription>
-            {isEn 
-              ? 'MITM proxy for replacing Machine ID in Kiro requests' 
+            {isEn
+              ? 'MITM proxy for replacing Machine ID in Kiro requests'
               : 'MITM 代理，用于替换 Kiro 请求中的 Machine ID'}
           </CardDescription>
         </CardHeader>
@@ -380,8 +412,8 @@ export function KProxyPanel() {
             <CardTitle className="text-lg">{isEn ? 'Device ID' : '设备 ID'}</CardTitle>
           </div>
           <CardDescription>
-            {isEn 
-              ? 'Machine ID to replace in requests (64 hex characters)' 
+            {isEn
+              ? 'Machine ID to replace in requests (64 hex characters)'
               : '替换请求中的 Machine ID（64位十六进制）'}
           </CardDescription>
         </CardHeader>
@@ -404,15 +436,23 @@ export function KProxyPanel() {
             </Button>
             {config.deviceId && (
               <Button variant="ghost" size="sm" className="h-8 px-2" onClick={copyDeviceId}>
-                {deviceIdCopied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                {deviceIdCopied ? (
+                  <Check className="h-3 w-3 text-green-500" />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
               </Button>
             )}
           </div>
           {config.deviceId && (
             <p className="text-xs text-muted-foreground">
-              {config.deviceId.length === 64 
-                ? (isEn ? '✓ Valid device ID format' : '✓ 设备 ID 格式正确')
-                : (isEn ? `⚠ Invalid length: ${config.deviceId.length}/64` : `⚠ 长度不正确: ${config.deviceId.length}/64`)}
+              {config.deviceId.length === 64
+                ? isEn
+                  ? '✓ Valid device ID format'
+                  : '✓ 设备 ID 格式正确'
+                : isEn
+                  ? `⚠ Invalid length: ${config.deviceId.length}/64`
+                  : `⚠ 长度不正确: ${config.deviceId.length}/64`}
             </p>
           )}
         </CardContent>
@@ -428,35 +468,43 @@ export function KProxyPanel() {
             </div>
             <div className="flex gap-2">
               {caInstalled === false ? (
-                <Button variant="default" size="sm" onClick={async () => {
-                  try {
-                    const result = await window.api.kproxyInstallCaCert()
-                    if (result.success) {
-                      setCaInstalled(true)
-                      alert(result.message || (isEn ? 'Certificate installed' : '证书已安装'))
-                    } else {
-                      alert(result.error || (isEn ? 'Failed to install' : '安装失败'))
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const result = await window.api.kproxyInstallCaCert()
+                      if (result.success) {
+                        setCaInstalled(true)
+                        alert(result.message || (isEn ? 'Certificate installed' : '证书已安装'))
+                      } else {
+                        alert(result.error || (isEn ? 'Failed to install' : '安装失败'))
+                      }
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : String(e))
                     }
-                  } catch (e) {
-                    alert(e instanceof Error ? e.message : String(e))
-                  }
-                }}>
+                  }}
+                >
                   {isEn ? 'Install' : '安装'}
                 </Button>
               ) : caInstalled === true ? (
-                <Button variant="destructive" size="sm" onClick={async () => {
-                  try {
-                    const result = await window.api.kproxyUninstallCaCert()
-                    if (result.success) {
-                      setCaInstalled(false)
-                      alert(result.message || (isEn ? 'Certificate uninstalled' : '证书已卸载'))
-                    } else {
-                      alert(result.error || (isEn ? 'Failed to uninstall' : '卸载失败'))
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const result = await window.api.kproxyUninstallCaCert()
+                      if (result.success) {
+                        setCaInstalled(false)
+                        alert(result.message || (isEn ? 'Certificate uninstalled' : '证书已卸载'))
+                      } else {
+                        alert(result.error || (isEn ? 'Failed to uninstall' : '卸载失败'))
+                      }
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : String(e))
                     }
-                  } catch (e) {
-                    alert(e instanceof Error ? e.message : String(e))
-                  }
-                }}>
+                  }}
+                >
                   {isEn ? 'Uninstall' : '卸载'}
                 </Button>
               ) : (
@@ -471,8 +519,8 @@ export function KProxyPanel() {
             </div>
           </div>
           <CardDescription>
-            {isEn 
-              ? 'Install this certificate to trust K-Proxy MITM' 
+            {isEn
+              ? 'Install this certificate to trust K-Proxy MITM'
               : '安装此证书以信任 K-Proxy MITM 代理'}
           </CardDescription>
         </CardHeader>
@@ -487,7 +535,8 @@ export function KProxyPanel() {
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">{isEn ? 'Valid:' : '有效期:'}</span>
               <span className="text-xs">
-                {new Date(caInfo.validFrom).toLocaleDateString()} - {new Date(caInfo.validTo).toLocaleDateString()}
+                {new Date(caInfo.validFrom).toLocaleDateString()} -{' '}
+                {new Date(caInfo.validTo).toLocaleDateString()}
               </span>
             </div>
           </CardContent>
@@ -538,13 +587,22 @@ export function KProxyPanel() {
           <CardContent>
             <div className="space-y-1 max-h-48 overflow-y-auto">
               {recentRequests.slice(0, 10).map((req, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-xs py-1 border-b last:border-0">
+                <div
+                  key={idx}
+                  className="flex items-center gap-2 text-xs py-1 border-b last:border-0"
+                >
                   <span className="text-muted-foreground w-16">{formatTime(req.timestamp)}</span>
-                  <Badge variant={req.isMitm ? 'default' : 'secondary'} className="text-[10px] px-1 py-0">
+                  <Badge
+                    variant={req.isMitm ? 'default' : 'secondary'}
+                    className="text-[10px] px-1 py-0"
+                  >
                     {req.isMitm ? 'MITM' : 'PASS'}
                   </Badge>
                   {req.deviceIdReplaced && (
-                    <Badge variant="outline" className="text-[10px] px-1 py-0 text-green-600 border-green-600">
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-1 py-0 text-green-600 border-green-600"
+                    >
                       ID
                     </Badge>
                   )}
@@ -562,10 +620,27 @@ export function KProxyPanel() {
           <CardTitle className="text-lg">{isEn ? 'Usage Guide' : '使用说明'}</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground space-y-2">
-          <p>1. {isEn ? 'Export and install the CA certificate to your system trust store' : '导出并安装 CA 证书到系统信任存储'}</p>
-          <p>2. {isEn ? 'Set your system/application proxy to' : '设置系统/应用代理为'} <code className="bg-muted px-1 rounded">{config.host}:{config.port}</code></p>
-          <p>3. {isEn ? 'Generate or enter a device ID to use for requests' : '生成或输入用于请求的设备 ID'}</p>
-          <p>4. {isEn ? 'Start the proxy and use Kiro IDE normally' : '启动代理后正常使用 Kiro IDE'}</p>
+          <p>
+            1.{' '}
+            {isEn
+              ? 'Export and install the CA certificate to your system trust store'
+              : '导出并安装 CA 证书到系统信任存储'}
+          </p>
+          <p>
+            2. {isEn ? 'Set your system/application proxy to' : '设置系统/应用代理为'}{' '}
+            <code className="bg-muted px-1 rounded">
+              {config.host}:{config.port}
+            </code>
+          </p>
+          <p>
+            3.{' '}
+            {isEn
+              ? 'Generate or enter a device ID to use for requests'
+              : '生成或输入用于请求的设备 ID'}
+          </p>
+          <p>
+            4. {isEn ? 'Start the proxy and use Kiro IDE normally' : '启动代理后正常使用 Kiro IDE'}
+          </p>
         </CardContent>
       </Card>
     </div>

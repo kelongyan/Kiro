@@ -2,7 +2,14 @@
 // 多账号管理器类型定义
 // ============================================
 
-export type IdpType = 'Google' | 'Github' | 'BuilderId' | 'Enterprise' | 'AWSIdC' | 'Internal' | 'IAM_SSO'
+export type IdpType =
+  | 'Google'
+  | 'Github'
+  | 'BuilderId'
+  | 'Enterprise'
+  | 'AWSIdC'
+  | 'Internal'
+  | 'IAM_SSO'
 
 export type SubscriptionType = 'Free' | 'Pro' | 'Pro_Plus' | 'Enterprise' | 'Teams'
 
@@ -15,13 +22,13 @@ export interface AccountCredentials {
   accessToken: string
   csrfToken: string
   refreshToken?: string
-  clientId?: string      // OIDC 客户端 ID（用于刷新 token）
-  clientSecret?: string  // OIDC 客户端密钥
-  region?: string        // AWS 区域，默认 us-east-1
-  startUrl?: string      // SSO Start URL（Enterprise 账户专用）
-  expiresAt: number      // 时间戳
-  authMethod?: 'IdC' | 'social'  // 认证方式：IdC (BuilderId/Enterprise) 或 social (GitHub/Google)
-  provider?: 'BuilderId' | 'Enterprise' | 'Github' | 'Google' | 'IAM_SSO'  // 身份提供商
+  clientId?: string // OIDC 客户端 ID（用于刷新 token）
+  clientSecret?: string // OIDC 客户端密钥
+  region?: string // AWS 区域，默认 us-east-1
+  startUrl?: string // SSO Start URL（Enterprise 账户专用）
+  expiresAt: number // 时间戳
+  authMethod?: 'IdC' | 'social' // 认证方式：IdC (BuilderId/Enterprise) 或 social (GitHub/Google)
+  provider?: 'BuilderId' | 'Enterprise' | 'Github' | 'Google' | 'IAM_SSO' // 身份提供商
 }
 
 /**
@@ -44,13 +51,13 @@ export interface AccountUsage {
   percentUsed: number
   lastUpdated: number
   // 详细额度分解
-  baseLimit?: number      // 基础额度
-  baseCurrent?: number    // 基础已用
+  baseLimit?: number // 基础额度
+  baseCurrent?: number // 基础已用
   freeTrialLimit?: number // 试用额度
   freeTrialCurrent?: number
   freeTrialExpiry?: string
-  bonuses?: BonusUsage[]  // 奖励额度列表
-  nextResetDate?: string  // 重置日期
+  bonuses?: BonusUsage[] // 奖励额度列表
+  nextResetDate?: string // 重置日期
   resourceDetail?: ResourceDetail // 资源详情
 }
 

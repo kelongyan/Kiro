@@ -18,13 +18,8 @@ interface AccountManagerProps {
 }
 
 export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode {
-  const {
-    isLoading,
-    accounts,
-    importFromExportData,
-    importAccounts,
-    selectedIds
-  } = useAccountsStore()
+  const { isLoading, accounts, importFromExportData, importAccounts, selectedIds } =
+    useAccountsStore()
 
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
@@ -47,7 +42,7 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
   const getExportAccounts = () => {
     const accountList = Array.from(accounts.values())
     if (selectedIds.size > 0) {
-      return accountList.filter(acc => selectedIds.has(acc.id))
+      return accountList.filter((acc) => selectedIds.has(acc.id))
     }
     return accountList
   }
@@ -62,7 +57,7 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
     const result: string[] = []
     let current = ''
     let inQuotes = false
-    
+
     for (let i = 0; i < line.length; i++) {
       const char = line[i]
       if (char === '"') {
@@ -97,7 +92,7 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
         const data = JSON.parse(content)
         if (data.version && data.accounts) {
           const result = importFromExportData(data)
-          const skippedInfo = result.errors.find(e => e.id === 'skipped')
+          const skippedInfo = result.errors.find((e) => e.id === 'skipped')
           const skippedMsg = skippedInfo ? `，${skippedInfo.error}` : ''
           alert(`导入完成：成功 ${result.success} 个${skippedMsg}`)
         } else {
@@ -105,25 +100,28 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
         }
       } else if (format === 'csv') {
         // CSV 格式：邮箱,昵称,登录方式,RefreshToken,ClientId,ClientSecret,Region
-        const lines = content.split('\n').filter(line => line.trim())
+        const lines = content.split('\n').filter((line) => line.trim())
         if (lines.length < 2) {
           alert('CSV 文件为空或只有标题行')
           return
         }
 
         // 跳过标题行，解析数据行
-        const items = lines.slice(1).map(line => {
-          const cols = parseCSVLine(line)
-          return {
-            email: cols[0] || '',
-            nickname: cols[1] || undefined,
-            idp: cols[2] || 'Google',
-            refreshToken: cols[3] || '',
-            clientId: cols[4] || '',
-            clientSecret: cols[5] || '',
-            region: cols[6] || 'us-east-1'
-          }
-        }).filter(item => item.email && item.refreshToken)
+        const items = lines
+          .slice(1)
+          .map((line) => {
+            const cols = parseCSVLine(line)
+            return {
+              email: cols[0] || '',
+              nickname: cols[1] || undefined,
+              idp: cols[2] || 'Google',
+              refreshToken: cols[3] || '',
+              clientId: cols[4] || '',
+              clientSecret: cols[5] || '',
+              region: cols[6] || 'us-east-1'
+            }
+          })
+          .filter((item) => item.email && item.refreshToken)
 
         if (items.length === 0) {
           alert('未找到有效的账号数据（需要邮箱和 RefreshToken）')
@@ -134,36 +132,40 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
         alert(`导入完成：成功 ${result.success} 个，失败 ${result.failed} 个`)
       } else if (format === 'txt') {
         // TXT 格式：自动识别卡密格式或普通格式
-        const lines = content.split('\n').filter(line => line.trim() && !line.startsWith('#'))
+        const lines = content.split('\n').filter((line) => line.trim() && !line.startsWith('#'))
 
         // 检测是否为卡密格式（包含 ---- 分隔符）
-        const isKamiFormat = lines.some(line => line.includes('----'))
+        const isKamiFormat = lines.some((line) => line.includes('----'))
 
         if (isKamiFormat) {
           // 卡密格式：邮箱----密码----RefreshToken----ClientId----ClientSecret
           // 自动识别分隔符：----、\t、连续空格
-          const items = lines.map(line => {
-            let parts: string[]
-            if (line.includes('----')) {
-              parts = line.split('----')
-            } else if (line.includes('\t')) {
-              parts = line.split('\t')
-            } else {
-              parts = line.split(/\s{2,}/)
-            }
-            const rawPwd = parts[1]?.trim()
-            return {
-              email: parts[0]?.trim() || '',
-              password: (rawPwd && rawPwd !== 'no_password') ? rawPwd : undefined,
-              refreshToken: parts[2]?.trim() || '',
-              clientId: parts[3]?.trim() || undefined,
-              clientSecret: parts[4]?.trim() || undefined,
-              idp: 'BuilderId' as const
-            }
-          }).filter(item => item.email && item.refreshToken)
+          const items = lines
+            .map((line) => {
+              let parts: string[]
+              if (line.includes('----')) {
+                parts = line.split('----')
+              } else if (line.includes('\t')) {
+                parts = line.split('\t')
+              } else {
+                parts = line.split(/\s{2,}/)
+              }
+              const rawPwd = parts[1]?.trim()
+              return {
+                email: parts[0]?.trim() || '',
+                password: rawPwd && rawPwd !== 'no_password' ? rawPwd : undefined,
+                refreshToken: parts[2]?.trim() || '',
+                clientId: parts[3]?.trim() || undefined,
+                clientSecret: parts[4]?.trim() || undefined,
+                idp: 'BuilderId' as const
+              }
+            })
+            .filter((item) => item.email && item.refreshToken)
 
           if (items.length === 0) {
-            alert('未找到有效的卡密数据（格式：邮箱----密码----RefreshToken----ClientId----ClientSecret）')
+            alert(
+              '未找到有效的卡密数据（格式：邮箱----密码----RefreshToken----ClientId----ClientSecret）'
+            )
             return
           }
 
@@ -171,18 +173,22 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
           alert(`卡密导入完成：成功 ${result.success} 个，失败 ${result.failed} 个`)
         } else {
           // 普通 TXT 格式：邮箱,RefreshToken 或 邮箱|RefreshToken
-          const items = lines.map(line => {
-            const parts = line.includes('|') ? line.split('|') : line.split(',')
-            return {
-              email: parts[0]?.trim() || '',
-              refreshToken: parts[1]?.trim() || '',
-              nickname: parts[2]?.trim() || undefined,
-              idp: parts[3]?.trim() || 'Google'
-            }
-          }).filter(item => item.email && item.refreshToken)
+          const items = lines
+            .map((line) => {
+              const parts = line.includes('|') ? line.split('|') : line.split(',')
+              return {
+                email: parts[0]?.trim() || '',
+                refreshToken: parts[1]?.trim() || '',
+                nickname: parts[2]?.trim() || undefined,
+                idp: parts[3]?.trim() || 'Google'
+              }
+            })
+            .filter((item) => item.email && item.refreshToken)
 
           if (items.length === 0) {
-            alert('未找到有效的账号数据（格式：邮箱,RefreshToken 或 卡密格式：邮箱----密码----Token----ID----Secret）')
+            alert(
+              '未找到有效的账号数据（格式：邮箱,RefreshToken 或 卡密格式：邮箱----密码----Token----ID----Secret）'
+            )
             return
           }
 
@@ -241,7 +247,7 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
             <h1 className="text-lg font-semibold text-primary">{isEn ? 'Accounts' : '账户管理'}</h1>
           </div>
         </div>
-        
+
         {/* 工具栏 */}
         <AccountToolbar
           onAddAccount={() => setShowAddDialog(true)}
@@ -275,10 +281,7 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
       </div>
 
       {/* 添加账号对话框 */}
-      <AddAccountDialog
-        isOpen={showAddDialog}
-        onClose={() => setShowAddDialog(false)}
-      />
+      <AddAccountDialog isOpen={showAddDialog} onClose={() => setShowAddDialog(false)} />
 
       {/* 编辑账号对话框 */}
       <EditAccountDialog
@@ -288,16 +291,10 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
       />
 
       {/* 分组管理对话框 */}
-      <GroupManageDialog
-        isOpen={showGroupDialog}
-        onClose={() => setShowGroupDialog(false)}
-      />
+      <GroupManageDialog isOpen={showGroupDialog} onClose={() => setShowGroupDialog(false)} />
 
       {/* 标签管理对话框 */}
-      <TagManageDialog
-        isOpen={showTagDialog}
-        onClose={() => setShowTagDialog(false)}
-      />
+      <TagManageDialog isOpen={showTagDialog} onClose={() => setShowTagDialog(false)} />
 
       {/* 导出对话框 */}
       <ExportDialog

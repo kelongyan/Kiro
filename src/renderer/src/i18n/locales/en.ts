@@ -407,7 +407,8 @@ const en = {
     tempMailEmail: 'TempMail.Plus Username',
     tempMailEmailPlaceholder: 'username (without @mailto.plus)',
     tempMailEpin: 'TempMail.Plus Access PIN',
-    tempMailDesc: 'Domain must have catch-all forwarding to your TempMail.Plus inbox. Random email prefixes are auto-generated.',
+    tempMailDesc:
+      'Domain must have catch-all forwarding to your TempMail.Plus inbox. Random email prefixes are auto-generated.',
     emailLabel: 'Email',
     emailPlaceholder: 'your@email.com',
     fullNameLabel: 'Full Name (optional)',
@@ -448,9 +449,11 @@ const en = {
     parentEmailSection: 'Parent Email & Anonymous Variants',
     parentEmailLabel: 'Parent Email (receives OTP)',
     parentEmailPlaceholder: 'your-name@gmail.com',
-    parentEmailHint: 'Optional. Required when anonymous is on; otherwise leave empty to enter manually after init.',
+    parentEmailHint:
+      'Optional. Required when anonymous is on; otherwise leave empty to enter manually after init.',
     anonymousEmailLabel: 'Random Anonymous Email (dot variants)',
-    anonymousEmailHint: 'Inject `.` into the parent local part to derive variants (Gmail/iCloud ignore dots). Tries 1 dot first, then 2, etc. Each generation checks local account inventory to avoid duplicates.',
+    anonymousEmailHint:
+      'Inject `.` into the parent local part to derive variants (Gmail/iCloud ignore dots). Tries 1 dot first, then 2, etc. Each generation checks local account inventory to avoid duplicates.',
     nextVariant: 'Next variant',
     dotCount: 'Dots',
     sameRoot: 'Same-root used',

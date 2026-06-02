@@ -16,12 +16,13 @@ export function KProxyPage() {
             <Shield className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-purple-600 dark:text-purple-400">K-Proxy MITM</h1>
+            <h1 className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+              K-Proxy MITM
+            </h1>
             <p className="text-muted-foreground">
-              {isEn 
+              {isEn
                 ? 'MITM proxy for Machine ID replacement, reduces ban risk'
-                : 'MITM 代理，替换 Machine ID，降低封禁风险'
-              }
+                : 'MITM 代理，替换 Machine ID，降低封禁风险'}
             </p>
           </div>
         </div>

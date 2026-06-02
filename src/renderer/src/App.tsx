@@ -51,10 +51,13 @@ function App(): React.JSX.Element {
         // 规范化 level（main 用 'error'/'info' 等字符串字面量，需要映射到 store 接受的类型）
         const rawLevel = (payload as { level?: string })?.level
         const level: 'info' | 'warn' | 'error' | 'success' =
-          rawLevel === 'error' ? 'error'
-          : rawLevel === 'info' ? 'info'
-          : rawLevel === 'success' ? 'success'
-          : 'warn'
+          rawLevel === 'error'
+            ? 'error'
+            : rawLevel === 'info'
+              ? 'info'
+              : rawLevel === 'success'
+                ? 'success'
+                : 'warn'
         void store.triggerEvent(targetEvent, {
           title: String((payload as Record<string, unknown>).title ?? '反代告警'),
           message: String((payload as Record<string, unknown>).message ?? ''),
@@ -65,12 +68,16 @@ function App(): React.JSX.Element {
         console.error('[App] Proxy webhook trigger failed:', err)
       }
     })
-    return () => { unsubscribe?.() }
+    return () => {
+      unsubscribe?.()
+    }
   }, [])
 
   // 关闭/刷新前强制 flush 防抖中的待保存数据，防止数据丢失
   useEffect(() => {
-    const handleBeforeUnload = (): void => { void flushSaveImmediately() }
+    const handleBeforeUnload = (): void => {
+      void flushSaveImmediately()
+    }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
@@ -79,7 +86,8 @@ function App(): React.JSX.Element {
 
   // 监听后台刷新结果：缓冲 + 批量化 flush，N 条结果合并为一次 set，消除 Map 复制风暴
   useEffect(() => {
-    const refreshBuffer: Array<{ id: string; success: boolean; data?: unknown; error?: string }> = []
+    const refreshBuffer: Array<{ id: string; success: boolean; data?: unknown; error?: string }> =
+      []
     let flushTimer: ReturnType<typeof setTimeout> | null = null
 
     const flush = (): void => {

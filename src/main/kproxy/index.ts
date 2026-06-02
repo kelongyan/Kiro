@@ -3,13 +3,7 @@ import * as path from 'path'
 import { CertManager, createCertManager } from './certManager'
 import { MitmProxy } from './mitmProxy'
 import { getUserDataPath } from '../services/runtime/paths'
-import type { 
-  KProxyConfig, 
-  KProxyStats, 
-  KProxyEvents,
-  CACertInfo,
-  DeviceIdMapping
-} from './types'
+import type { KProxyConfig, KProxyStats, KProxyEvents, CACertInfo, DeviceIdMapping } from './types'
 import { DEFAULT_KPROXY_CONFIG } from './types'
 
 // 导出类型
@@ -236,7 +230,7 @@ export function generateDeviceId(): string {
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)
   return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
+    .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
 }
 

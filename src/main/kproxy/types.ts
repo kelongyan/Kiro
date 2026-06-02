@@ -113,11 +113,7 @@ export interface MitmRule {
 /**
  * 默认 MITM 域名白名单
  */
-export const DEFAULT_MITM_DOMAINS = [
-  'amazonaws.com',
-  'amazon.com',
-  'kiro.dev'
-]
+export const DEFAULT_MITM_DOMAINS = ['amazonaws.com', 'amazon.com', 'kiro.dev']
 
 /**
  * 默认 K-Proxy 配置

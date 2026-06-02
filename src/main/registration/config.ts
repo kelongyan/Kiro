@@ -27,7 +27,7 @@ export interface RegistrationConfig {
 
   // TempMail.Plus + 自建域名
   useTempMailPlus: boolean
-  tempMailPlusEmail: string  // tempmail.plus 用户名（不含 @mailto.plus）
+  tempMailPlusEmail: string // tempmail.plus 用户名（不含 @mailto.plus）
   tempMailPlusEpin: string
   tempMailPlusDomain: string // 自建域名
 

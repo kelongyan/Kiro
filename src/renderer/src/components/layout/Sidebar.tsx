@@ -92,7 +92,9 @@ export function Sidebar({ currentPage, onPageChange, collapsed, onToggleCollapse
                   transition={{ type: 'spring', stiffness: 380, damping: 32 }}
                 />
               )}
-              <Icon className={cn('h-5 w-5 shrink-0 relative z-10', isActive ? 'text-white' : '')} />
+              <Icon
+                className={cn('h-5 w-5 shrink-0 relative z-10', isActive ? 'text-white' : '')}
+              />
               <AnimatePresence initial={false}>
                 {!collapsed && (
                   <motion.span
@@ -117,7 +119,7 @@ export function Sidebar({ currentPage, onPageChange, collapsed, onToggleCollapse
         <button
           onClick={onToggleCollapse}
           className="group w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:text-primary hover:bg-white/40 dark:hover:bg-white/5 transition-all overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-          title={collapsed ? (isEn ? 'Expand' : '展开侧边栏') : (isEn ? 'Collapse' : '收起侧边栏')}
+          title={collapsed ? (isEn ? 'Expand' : '展开侧边栏') : isEn ? 'Collapse' : '收起侧边栏'}
         >
           <motion.div
             animate={{ rotate: collapsed ? 0 : 180 }}
@@ -145,4 +147,3 @@ export function Sidebar({ currentPage, onPageChange, collapsed, onToggleCollapse
     </motion.aside>
   )
 }
-

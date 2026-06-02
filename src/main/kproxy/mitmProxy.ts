@@ -3,12 +3,7 @@ import * as http from 'http'
 import * as net from 'net'
 import * as tls from 'tls'
 import * as url from 'url'
-import type { 
-  KProxyConfig, 
-  KProxyStats, 
-  KProxyEvents,
-  KProxyRequestInfo 
-} from './types'
+import type { KProxyConfig, KProxyStats, KProxyEvents, KProxyRequestInfo } from './types'
 import { CertManager } from './certManager'
 
 // Machine ID 正则匹配模式（64位十六进制）
@@ -89,7 +84,7 @@ export class MitmProxy {
     }
 
     // 关闭所有 TLS 服务器
-    for (const [_host, tlsServer] of this.tlsServers) {
+    for (const tlsServer of this.tlsServers.values()) {
       tlsServer.close()
     }
     this.tlsServers.clear()
@@ -137,11 +132,7 @@ export class MitmProxy {
   /**
    * 处理 CONNECT 请求（HTTPS 隧道）
    */
-  private handleConnect(
-    req: http.IncomingMessage, 
-    clientSocket: net.Socket, 
-    head: Buffer
-  ): void {
+  private handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, head: Buffer): void {
     this.stats.totalRequests++
     this.stats.lastRequestTime = Date.now()
 
@@ -153,7 +144,7 @@ export class MitmProxy {
 
     if (shouldMitm) {
       this.stats.mitmRequests++
-      this.handleMitmConnect(hostname, port, clientSocket, head)
+      this.handleMitmConnect(hostname, port, clientSocket)
     } else {
       this.stats.bypassRequests++
       this.handleDirectConnect(hostname, port, clientSocket, head)
@@ -182,9 +173,9 @@ export class MitmProxy {
    * 直接转发连接（不解密）
    */
   private handleDirectConnect(
-    hostname: string, 
-    port: number, 
-    clientSocket: net.Socket, 
+    hostname: string,
+    port: number,
+    clientSocket: net.Socket,
     head: Buffer
   ): void {
     const serverSocket = net.connect(port, hostname, () => {
@@ -208,12 +199,7 @@ export class MitmProxy {
   /**
    * MITM 拦截连接
    */
-  private handleMitmConnect(
-    hostname: string, 
-    port: number, 
-    clientSocket: net.Socket, 
-    _head: Buffer
-  ): void {
+  private handleMitmConnect(hostname: string, port: number, clientSocket: net.Socket): void {
     try {
       // 为目标域名生成证书
       const { cert, key } = this.certManager.generateCertForHost(hostname)
@@ -251,8 +237,8 @@ export class MitmProxy {
    * 处理解密后的 HTTPS 连接
    */
   private handleDecryptedConnection(
-    clientSocket: tls.TLSSocket, 
-    hostname: string, 
+    clientSocket: tls.TLSSocket,
+    hostname: string,
     port: number
   ): void {
     let requestData = ''
@@ -266,12 +252,12 @@ export class MitmProxy {
       if (!headersParsed) {
         requestData += chunk.toString()
         const headerEnd = requestData.indexOf('\r\n\r\n')
-        
+
         if (headerEnd !== -1) {
           headersParsed = true
           const headers = requestData.substring(0, headerEnd)
           const body = requestData.substring(headerEnd + 4)
-          
+
           // 解析并修改请求头
           const { modified, newHeaders, info } = this.modifyHeaders(headers, hostname)
           modifiedHeaders = newHeaders
@@ -293,14 +279,26 @@ export class MitmProxy {
           const modifiedBody = this.modifyBody(body)
           if (modifiedBody !== body) {
             // body 长度变了，更新 Content-Length
-            const newLength = contentLength - Buffer.byteLength(body) + Buffer.byteLength(modifiedBody)
-            modifiedHeaders = modifiedHeaders.replace(/content-length:\s*\d+/i, `content-length: ${newLength}`)
+            const newLength =
+              contentLength - Buffer.byteLength(body) + Buffer.byteLength(modifiedBody)
+            modifiedHeaders = modifiedHeaders.replace(
+              /content-length:\s*\d+/i,
+              `content-length: ${newLength}`
+            )
             contentLength = newLength
           }
           bodyReceived = Buffer.byteLength(modifiedBody)
 
           // 转发请求到目标服务器
-          this.forwardRequest(modifiedHeaders, modifiedBody, hostname, port, clientSocket, contentLength, bodyReceived)
+          this.forwardRequest(
+            modifiedHeaders,
+            modifiedBody,
+            hostname,
+            port,
+            clientSocket,
+            contentLength,
+            bodyReceived
+          )
         }
       }
     })
@@ -323,7 +321,9 @@ export class MitmProxy {
       // 不替换已经是目标 ID 的
       if (match.toLowerCase() === targetDeviceId.toLowerCase()) return match
       if (this.config.logRequests) {
-        console.log(`[MitmProxy] Replaced Machine ID in body: ${match.substring(0, 16)}... -> ${targetDeviceId.substring(0, 16)}...`)
+        console.log(
+          `[MitmProxy] Replaced Machine ID in body: ${match.substring(0, 16)}... -> ${targetDeviceId.substring(0, 16)}...`
+        )
       }
       return targetDeviceId
     })
@@ -335,13 +335,13 @@ export class MitmProxy {
    * 修改请求头（替换 Machine ID）
    */
   private modifyHeaders(
-    headers: string, 
+    headers: string,
     hostname: string
   ): { modified: boolean; newHeaders: string; info: KProxyRequestInfo } {
     const lines = headers.split('\r\n')
     const firstLine = lines[0]
     const [method, path] = firstLine.split(' ')
-    
+
     let modified = false
     let originalDeviceId: string | undefined
     let newDeviceId: string | undefined
@@ -362,7 +362,7 @@ export class MitmProxy {
 
     const modifiedLines = lines.map((line) => {
       const lowerLine = line.toLowerCase()
-      
+
       // 检查 user-agent 和 x-amz-user-agent
       if (lowerLine.startsWith('user-agent:') || lowerLine.startsWith('x-amz-user-agent:')) {
         const match = line.match(KIRO_UA_REGEX)
@@ -391,10 +391,10 @@ export class MitmProxy {
       info.newDeviceId = newDeviceId
     }
 
-    return { 
-      modified, 
+    return {
+      modified,
       newHeaders: modifiedLines.join('\r\n'),
-      info 
+      info
     }
   }
 
@@ -413,28 +413,31 @@ export class MitmProxy {
     const startTime = Date.now()
 
     // 连接到目标服务器
-    const serverSocket = tls.connect({
-      host: hostname,
-      port,
-      servername: hostname,
-      rejectUnauthorized: true
-    }, () => {
-      // 发送修改后的请求头
-      serverSocket.write(headers + '\r\n\r\n')
-      
-      // 发送已接收的请求体
-      if (initialBody) {
-        serverSocket.write(initialBody)
-      }
+    const serverSocket = tls.connect(
+      {
+        host: hostname,
+        port,
+        servername: hostname,
+        rejectUnauthorized: true
+      },
+      () => {
+        // 发送修改后的请求头
+        serverSocket.write(headers + '\r\n\r\n')
 
-      // 如果还有更多数据，继续转发
-      if (bodyReceived < contentLength) {
-        clientSocket.on('data', (chunk: Buffer) => {
-          serverSocket.write(chunk)
-          bodyReceived += chunk.length
-        })
+        // 发送已接收的请求体
+        if (initialBody) {
+          serverSocket.write(initialBody)
+        }
+
+        // 如果还有更多数据，继续转发
+        if (bodyReceived < contentLength) {
+          clientSocket.on('data', (chunk: Buffer) => {
+            serverSocket.write(chunk)
+            bodyReceived += chunk.length
+          })
+        }
       }
-    })
+    )
 
     // 将响应转发回客户端
     serverSocket.on('data', (chunk: Buffer) => {

@@ -4,7 +4,7 @@ import type { ProxyAccount, AccountStats } from './types'
 
 // 错误类型分类（决定 failover 策略）
 export enum ErrorType {
-  FATAL = 'fatal',           // 请求本身有问题 → 直接返回客户端，不切号
+  FATAL = 'fatal', // 请求本身有问题 → 直接返回客户端，不切号
   RECOVERABLE = 'recoverable' // 账号问题 → 切换到下一个账号
 }
 
@@ -30,16 +30,16 @@ export function classifyError(statusCode: number, reason?: string): ErrorType {
 }
 
 export interface AccountPoolConfig {
-  baseCooldownMs: number      // 基础冷却时间（指数退避的基数）
+  baseCooldownMs: number // 基础冷却时间（指数退避的基数）
   maxBackoffMultiplier: number // 最大退避倍数
-  quotaResetMs: number        // 配额耗尽冷却时间
+  quotaResetMs: number // 配额耗尽冷却时间
   probabilisticRetryChance: number // 概率重试几率（0-1）
 }
 
 const DEFAULT_CONFIG: AccountPoolConfig = {
-  baseCooldownMs: 60000,        // 60s 基础冷却
-  maxBackoffMultiplier: 1440,   // 最大 1440 倍 = 24h
-  quotaResetMs: 3600000,        // 1h 配额重置
+  baseCooldownMs: 60000, // 60s 基础冷却
+  maxBackoffMultiplier: 1440, // 最大 1440 倍 = 24h
+  quotaResetMs: 3600000, // 1h 配额重置
   probabilisticRetryChance: 0.1 // 10% 概率重试
 }
 
@@ -92,7 +92,9 @@ export class AccountPool {
       totalResponseTime: 0
     })
     if (suspended) {
-      console.warn(`[AccountPool] Added SUSPENDED account: ${account.email || account.id} (${account.suspendReason})`)
+      console.warn(
+        `[AccountPool] Added SUSPENDED account: ${account.email || account.id} (${account.suspendReason})`
+      )
     } else {
       console.log(`[AccountPool] Added account: ${account.email || account.id}`)
     }
@@ -145,17 +147,18 @@ export class AccountPool {
     }
 
     // 没有可用账号：检查是否全部因配额耗尽
-    const candidates = excludeIds
-      ? accountList.filter(a => !excludeIds.has(a.id))
-      : accountList
-    const allExhausted = candidates.length > 0 && candidates.every(a => this.isQuotaExhausted(a, now))
+    const candidates = excludeIds ? accountList.filter((a) => !excludeIds.has(a.id)) : accountList
+    const allExhausted =
+      candidates.length > 0 && candidates.every((a) => this.isQuotaExhausted(a, now))
     if (allExhausted) {
-      console.log(`[AccountPool] All ${candidates.length} accounts quota exhausted, no fallback available`)
+      console.log(
+        `[AccountPool] All ${candidates.length} accounts quota exhausted, no fallback available`
+      )
       return null
     }
 
     // 还有非配额原因不可用的账号，返回冷却时间最短的
-    const nonExhausted = candidates.filter(a => !this.isQuotaExhausted(a, now))
+    const nonExhausted = candidates.filter((a) => !this.isQuotaExhausted(a, now))
     return this.getAccountWithShortestCooldown(nonExhausted, now)
   }
 
@@ -172,7 +175,7 @@ export class AccountPool {
     }
 
     const now = Date.now()
-    
+
     // 尝试找到一个可用的账号（排除当前账号）
     for (const account of accountList) {
       if (account.id !== excludeAccountId && this.isAccountAvailable(account, now)) {
@@ -181,7 +184,7 @@ export class AccountPool {
     }
 
     // 没有立即可用的账号，返回冷却时间最短的（排除当前账号）
-    const otherAccounts = accountList.filter(a => a.id !== excludeAccountId)
+    const otherAccounts = accountList.filter((a) => a.id !== excludeAccountId)
     return this.getAccountWithShortestCooldown(otherAccounts, now)
   }
 
@@ -220,7 +223,10 @@ export class AccountPool {
     if (failures > 0 && account.lastUsed) {
       const timeSinceFailure = now - account.lastUsed
       // 指数退避：base * 2^(failures-1)，封顶为 maxBackoffMultiplier
-      const backoffMultiplier = Math.min(Math.pow(2, failures - 1), this.config.maxBackoffMultiplier)
+      const backoffMultiplier = Math.min(
+        Math.pow(2, failures - 1),
+        this.config.maxBackoffMultiplier
+      )
       const effectiveCooldown = this.config.baseCooldownMs * backoffMultiplier
 
       if (timeSinceFailure < effectiveCooldown) {
@@ -228,7 +234,9 @@ export class AccountPool {
         if (Math.random() > this.config.probabilisticRetryChance) {
           return false
         }
-        console.log(`[AccountPool] Probabilistic retry for ${account.email || account.id} (failures=${failures}, cooldown=${Math.round(effectiveCooldown / 1000)}s)`)
+        console.log(
+          `[AccountPool] Probabilistic retry for ${account.email || account.id} (failures=${failures}, cooldown=${Math.round(effectiveCooldown / 1000)}s)`
+        )
       }
       // else: 冷却期已过，Half-Open 状态，允许重试
     }
@@ -287,21 +295,28 @@ export class AccountPool {
       return true
     }
     // 有配额数据且已用尽
-    if (account.quotaLimit && account.quotaLimit > 0 && (account.quotaUsed ?? 0) >= account.quotaLimit) {
+    if (
+      account.quotaLimit &&
+      account.quotaLimit > 0 &&
+      (account.quotaUsed ?? 0) >= account.quotaLimit
+    ) {
       return true
     }
     return false
   }
 
   // 获取冷却时间最短的账号
-  private getAccountWithShortestCooldown(accounts: ProxyAccount[], now: number): ProxyAccount | null {
+  private getAccountWithShortestCooldown(
+    accounts: ProxyAccount[],
+    now: number
+  ): ProxyAccount | null {
     let bestAccount: ProxyAccount | null = null
     let shortestWait = Infinity
 
     for (const account of accounts) {
       const cooldownUntil = account.cooldownUntil || 0
       const wait = Math.max(0, cooldownUntil - now)
-      
+
       if (wait < shortestWait) {
         shortestWait = wait
         bestAccount = account
@@ -348,7 +363,11 @@ export class AccountPool {
   }
 
   // 记录请求失败（区分错误类型）
-  recordError(accountId: string, errorType: ErrorType = ErrorType.RECOVERABLE, statusCode?: number): void {
+  recordError(
+    accountId: string,
+    errorType: ErrorType = ErrorType.RECOVERABLE,
+    statusCode?: number
+  ): void {
     const account = this.accounts.get(accountId)
     if (!account) return
 
@@ -372,13 +391,21 @@ export class AccountPool {
     }
 
     // 计算当前退避时间用于日志
-    const backoffMultiplier = Math.min(Math.pow(2, errorCount - 1), this.config.maxBackoffMultiplier)
+    const backoffMultiplier = Math.min(
+      Math.pow(2, errorCount - 1),
+      this.config.maxBackoffMultiplier
+    )
     const effectiveCooldown = this.config.baseCooldownMs * backoffMultiplier
-    const cooldownStr = effectiveCooldown < 60000 ? `${Math.round(effectiveCooldown / 1000)}s`
-      : effectiveCooldown < 3600000 ? `${Math.round(effectiveCooldown / 60000)}m`
-      : `${Math.round(effectiveCooldown / 3600000)}h`
+    const cooldownStr =
+      effectiveCooldown < 60000
+        ? `${Math.round(effectiveCooldown / 1000)}s`
+        : effectiveCooldown < 3600000
+          ? `${Math.round(effectiveCooldown / 60000)}m`
+          : `${Math.round(effectiveCooldown / 3600000)}h`
 
-    console.log(`[AccountPool] Account ${account.email || accountId} failure #${errorCount}: status=${statusCode || '?'}, cooldown=${cooldownStr}`)
+    console.log(
+      `[AccountPool] Account ${account.email || accountId} failure #${errorCount}: status=${statusCode || '?'}, cooldown=${cooldownStr}`
+    )
 
     this.accounts.set(accountId, {
       ...account,
@@ -400,13 +427,17 @@ export class AccountPool {
       quotaLimit: limit,
       quotaResetAt: resetAt,
       // 如果配额从耗尽恢复，清除耗尽标记
-      quotaExhaustedAt: (used < limit) ? undefined : account.quotaExhaustedAt
+      quotaExhaustedAt: used < limit ? undefined : account.quotaExhaustedAt
     })
 
     if (!wasExhausted && used >= limit) {
-      console.log(`[AccountPool] Account ${account.email || accountId} quota reached: ${used}/${limit}`)
+      console.log(
+        `[AccountPool] Account ${account.email || accountId} quota reached: ${used}/${limit}`
+      )
     } else if (wasExhausted && used < limit) {
-      console.log(`[AccountPool] Account ${account.email || accountId} quota recovered: ${used}/${limit}`)
+      console.log(
+        `[AccountPool] Account ${account.email || accountId} quota recovered: ${used}/${limit}`
+      )
     }
   }
 
@@ -443,7 +474,10 @@ export class AccountPool {
   }
 
   // 获取统计信息
-  getStats(): { accounts: Map<string, AccountStats>; total: { requests: number; tokens: number; errors: number } } {
+  getStats(): {
+    accounts: Map<string, AccountStats>
+    total: { requests: number; tokens: number; errors: number }
+  } {
     let totalRequests = 0
     let totalTokens = 0
     let totalErrors = 0

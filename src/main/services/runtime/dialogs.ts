@@ -1,4 +1,11 @@
-import { dialog, type BrowserWindow, type OpenDialogOptions, type OpenDialogReturnValue, type SaveDialogOptions, type SaveDialogReturnValue } from 'electron'
+import {
+  dialog,
+  type BrowserWindow,
+  type OpenDialogOptions,
+  type OpenDialogReturnValue,
+  type SaveDialogOptions,
+  type SaveDialogReturnValue
+} from 'electron'
 
 export function showOpenFileDialog(
   owner: BrowserWindow | null,

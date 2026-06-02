@@ -1,7 +1,14 @@
 import { useState, useCallback } from 'react'
 import {
-  Archive, Download, Upload, FileJson, ShieldAlert, CheckCircle2,
-  Trash2, RefreshCw, AlertTriangle
+  Archive,
+  Download,
+  Upload,
+  FileJson,
+  ShieldAlert,
+  CheckCircle2,
+  Trash2,
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react'
 import { useAccountsStore } from '@/store/accounts'
 import { useWebhookStore } from '@/store/webhooks'
@@ -21,7 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle, Button, Label, Switch } from 
 interface PortableConfig {
   version: 1
   exportedAt: string
-  app: string  // "kiro-account-manager"
+  app: string // "kiro-account-manager"
   /** 代理池条目（脱敏：密码字段会被打码） */
   proxyPool?: Array<Record<string, unknown>>
   proxyPoolConfig?: Record<string, unknown>
@@ -117,14 +124,18 @@ export function ConfigSyncPage(): React.ReactNode {
       try {
         const raw = localStorage.getItem('kiro-register-config')
         if (raw) payload.registerConfig = JSON.parse(raw)
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     if (opts.registerTemplates) {
       try {
         const raw = localStorage.getItem('kiro-register-templates')
         if (raw) payload.registerTemplates = JSON.parse(raw)
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     if (opts.registerSettings) {
@@ -174,7 +185,9 @@ export function ConfigSyncPage(): React.ReactNode {
 
     setLastExportSize(outputText.length)
 
-    const blob = new Blob([outputText], { type: opts.encrypt ? 'application/octet-stream' : 'application/json' })
+    const blob = new Blob([outputText], {
+      type: opts.encrypt ? 'application/octet-stream' : 'application/json'
+    })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -183,122 +196,152 @@ export function ConfigSyncPage(): React.ReactNode {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }, [opts, store, encryptPassword, isEn])
 
-  const handleImport = useCallback(async (file: File): Promise<void> => {
-    try {
-      let text = await file.text()
-      // C4: 加密文件自动识别 + 弹窗输入密码解密
-      if (file.name.endsWith('.kcfg') || text.startsWith('KCFG1:')) {
-        const pwd = prompt(isEn ? 'Enter decryption password:' : '请输入解密密码：')
-        if (!pwd) return
-        try {
-          text = await decryptText(text, pwd)
-        } catch (err) {
-          setLastImportResult({ success: false, error: `解密失败：${err instanceof Error ? err.message : String(err)}` })
+  const handleImport = useCallback(
+    async (file: File): Promise<void> => {
+      try {
+        let text = await file.text()
+        // C4: 加密文件自动识别 + 弹窗输入密码解密
+        if (file.name.endsWith('.kcfg') || text.startsWith('KCFG1:')) {
+          const pwd = prompt(isEn ? 'Enter decryption password:' : '请输入解密密码：')
+          if (!pwd) return
+          try {
+            text = await decryptText(text, pwd)
+          } catch (err) {
+            setLastImportResult({
+              success: false,
+              error: `解密失败：${err instanceof Error ? err.message : String(err)}`
+            })
+            return
+          }
+        }
+        const data = JSON.parse(text) as PortableConfig
+        if (data.app !== 'kiro-account-manager') {
+          setLastImportResult({
+            success: false,
+            error: '文件不是有效的 Kiro 账号管理器配置（app 标识不匹配）'
+          })
           return
         }
-      }
-      const data = JSON.parse(text) as PortableConfig
-      if (data.app !== 'kiro-account-manager') {
-        setLastImportResult({ success: false, error: '文件不是有效的 Kiro 账号管理器配置（app 标识不匹配）' })
-        return
-      }
 
-      const counts: Record<string, number> = {}
+        const counts: Record<string, number> = {}
 
-      // 代理池
-      if (data.proxyPool && data.proxyPool.length > 0) {
-        let added = 0
-        for (const p of data.proxyPool) {
-          // 跳过脱敏过的密码
-          if (typeof (p as { url?: string }).url === 'string' && !(p as { url: string }).url.includes('***')) {
-            const id = store.addProxy((p as { url: string }).url, {
-              label: (p as { label?: string }).label,
-              source: 'import-config',
-              tags: (p as { tags?: string[] }).tags
-            })
-            if (id) added++
-          } else if ((p as { host?: string }).host && (p as { port?: number }).port) {
-            // 脱敏的代理：只有 host:port 时按 http 默认导入
-            const proto = (p as { protocol?: string }).protocol || 'http'
-            const url = `${proto}://${(p as { host: string }).host}:${(p as { port: number }).port}`
-            const id = store.addProxy(url, {
-              label: (p as { label?: string }).label,
-              source: 'import-config-masked',
-              tags: (p as { tags?: string[] }).tags
-            })
-            if (id) added++
+        // 代理池
+        if (data.proxyPool && data.proxyPool.length > 0) {
+          let added = 0
+          for (const p of data.proxyPool) {
+            // 跳过脱敏过的密码
+            if (
+              typeof (p as { url?: string }).url === 'string' &&
+              !(p as { url: string }).url.includes('***')
+            ) {
+              const id = store.addProxy((p as { url: string }).url, {
+                label: (p as { label?: string }).label,
+                source: 'import-config',
+                tags: (p as { tags?: string[] }).tags
+              })
+              if (id) added++
+            } else if ((p as { host?: string }).host && (p as { port?: number }).port) {
+              // 脱敏的代理：只有 host:port 时按 http 默认导入
+              const proto = (p as { protocol?: string }).protocol || 'http'
+              const url = `${proto}://${(p as { host: string }).host}:${(p as { port: number }).port}`
+              const id = store.addProxy(url, {
+                label: (p as { label?: string }).label,
+                source: 'import-config-masked',
+                tags: (p as { tags?: string[] }).tags
+              })
+              if (id) added++
+            }
+          }
+          counts['代理池'] = added
+        }
+        if (data.proxyPoolConfig) {
+          store.setProxyPoolConfig(data.proxyPoolConfig as Partial<typeof store.proxyPoolConfig>)
+        }
+
+        // Webhooks
+        if (data.webhooks && data.webhooks.length > 0) {
+          const ws = useWebhookStore.getState()
+          let added = 0
+          for (const w of data.webhooks) {
+            const input = w as Parameters<typeof ws.addWebhook>[0]
+            if (input.kind && input.url) {
+              ws.addWebhook(input)
+              added++
+            }
+          }
+          counts['Webhook'] = added
+        }
+
+        // 注册配置
+        if (data.registerConfig) {
+          try {
+            localStorage.setItem('kiro-register-config', JSON.stringify(data.registerConfig))
+            counts['注册配置'] = 1
+          } catch {
+            /* ignore */
           }
         }
-        counts['代理池'] = added
-      }
-      if (data.proxyPoolConfig) {
-        store.setProxyPoolConfig(data.proxyPoolConfig as Partial<typeof store.proxyPoolConfig>)
-      }
 
-      // Webhooks
-      if (data.webhooks && data.webhooks.length > 0) {
-        const ws = useWebhookStore.getState()
-        let added = 0
-        for (const w of data.webhooks) {
-          const input = w as Parameters<typeof ws.addWebhook>[0]
-          if (input.kind && input.url) {
-            ws.addWebhook(input)
-            added++
+        // 注册模板
+        if (data.registerTemplates) {
+          try {
+            localStorage.setItem('kiro-register-templates', JSON.stringify(data.registerTemplates))
+            counts['注册模板'] = data.registerTemplates.length
+          } catch {
+            /* ignore */
           }
         }
-        counts['Webhook'] = added
-      }
 
-      // 注册配置
-      if (data.registerConfig) {
-        try {
-          localStorage.setItem('kiro-register-config', JSON.stringify(data.registerConfig))
-          counts['注册配置'] = 1
-        } catch { /* ignore */ }
-      }
-
-      // 注册模板
-      if (data.registerTemplates) {
-        try {
-          localStorage.setItem('kiro-register-templates', JSON.stringify(data.registerTemplates))
-          counts['注册模板'] = data.registerTemplates.length
-        } catch { /* ignore */ }
-      }
-
-      // 注册相关 localStorage
-      if (data.registerLocalStorage) {
-        let n = 0
-        for (const [k, v] of Object.entries(data.registerLocalStorage)) {
-          if (REGISTER_LS_KEYS.includes(k)) {
-            try { localStorage.setItem(k, v); n++ } catch { /* ignore */ }
+        // 注册相关 localStorage
+        if (data.registerLocalStorage) {
+          let n = 0
+          for (const [k, v] of Object.entries(data.registerLocalStorage)) {
+            if (REGISTER_LS_KEYS.includes(k)) {
+              try {
+                localStorage.setItem(k, v)
+                n++
+              } catch {
+                /* ignore */
+              }
+            }
           }
+          counts['注册偏好'] = n
         }
-        counts['注册偏好'] = n
-      }
 
-      // App 设置
-      if (data.appSettings) {
-        const s = data.appSettings
-        if (s.theme != null) store.setTheme(s.theme)
-        if (s.darkMode != null) store.setDarkMode(s.darkMode)
-        if (s.language != null) store.setLanguage(s.language as 'auto' | 'en' | 'zh')
-        if (s.autoRefreshEnabled != null) store.setAutoRefresh(s.autoRefreshEnabled, s.autoRefreshInterval)
-        if (s.autoRefreshConcurrency != null) store.setAutoRefreshConcurrency(s.autoRefreshConcurrency)
-        if (s.statusCheckInterval != null) store.setStatusCheckInterval(s.statusCheckInterval)
-        if (s.privacyMode != null) store.setPrivacyMode(s.privacyMode)
-        if (s.usagePrecision != null) store.setUsagePrecision(s.usagePrecision)
-        if (s.autoSwitchEnabled != null) store.setAutoSwitch(s.autoSwitchEnabled, s.autoSwitchThreshold, s.autoSwitchInterval)
-        if (s.switchTarget != null && (s.switchTarget === 'ide' || s.switchTarget === 'cli' || s.switchTarget === 'both')) {
-          store.setSwitchTarget(s.switchTarget)
+        // App 设置
+        if (data.appSettings) {
+          const s = data.appSettings
+          if (s.theme != null) store.setTheme(s.theme)
+          if (s.darkMode != null) store.setDarkMode(s.darkMode)
+          if (s.language != null) store.setLanguage(s.language as 'auto' | 'en' | 'zh')
+          if (s.autoRefreshEnabled != null)
+            store.setAutoRefresh(s.autoRefreshEnabled, s.autoRefreshInterval)
+          if (s.autoRefreshConcurrency != null)
+            store.setAutoRefreshConcurrency(s.autoRefreshConcurrency)
+          if (s.statusCheckInterval != null) store.setStatusCheckInterval(s.statusCheckInterval)
+          if (s.privacyMode != null) store.setPrivacyMode(s.privacyMode)
+          if (s.usagePrecision != null) store.setUsagePrecision(s.usagePrecision)
+          if (s.autoSwitchEnabled != null)
+            store.setAutoSwitch(s.autoSwitchEnabled, s.autoSwitchThreshold, s.autoSwitchInterval)
+          if (
+            s.switchTarget != null &&
+            (s.switchTarget === 'ide' || s.switchTarget === 'cli' || s.switchTarget === 'both')
+          ) {
+            store.setSwitchTarget(s.switchTarget)
+          }
+          counts['App 设置'] = 1
         }
-        counts['App 设置'] = 1
-      }
 
-      setLastImportResult({ success: true, counts })
-    } catch (err) {
-      setLastImportResult({ success: false, error: err instanceof Error ? err.message : String(err) })
-    }
-  }, [store])
+        setLastImportResult({ success: true, counts })
+      } catch (err) {
+        setLastImportResult({
+          success: false,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    },
+    [isEn, store]
+  )
 
   return (
     <div className="flex-1 p-6 space-y-6 overflow-auto">
@@ -317,8 +360,7 @@ export function ConfigSyncPage(): React.ReactNode {
             <p className="text-muted-foreground">
               {isEn
                 ? 'Export & import non-sensitive app config (proxy pool, webhooks, register templates, app preferences) for multi-device sync.'
-                : '导出/导入非敏感配置（代理池、Webhook、注册模板、应用偏好），用于多设备同步'
-              }
+                : '导出/导入非敏感配置（代理池、Webhook、注册模板、应用偏好），用于多设备同步'}
             </p>
           </div>
         </div>
@@ -335,14 +377,12 @@ export function ConfigSyncPage(): React.ReactNode {
             <p className="text-muted-foreground">
               {isEn
                 ? 'This export does NOT include account credentials, refresh tokens, or other sensitive secrets — use "Account Export" (under Accounts page) for those.'
-                : '本页导出"不包含"账号凭据、Refresh Token 等敏感数据。账号导出请走"账户管理 → 导出"专用通道。'
-              }
+                : '本页导出"不包含"账号凭据、Refresh Token 等敏感数据。账号导出请走"账户管理 → 导出"专用通道。'}
             </p>
             <p className="text-muted-foreground">
               {isEn
                 ? 'Tip: keep "Include proxy credentials" OFF when sharing the file with others.'
-                : '提示：分享给他人时，建议关闭"包含代理密码"选项，密码会被打码。'
-              }
+                : '提示：分享给他人时，建议关闭"包含代理密码"选项，密码会被打码。'}
             </p>
           </div>
         </CardContent>
@@ -384,7 +424,9 @@ export function ConfigSyncPage(): React.ReactNode {
               onChange={(v) => setOpts((p) => ({ ...p, registerSettings: v }))}
             />
             <ExportToggle
-              label={isEn ? 'App Settings (theme/lang/auto-refresh)' : 'App 设置（主题/语言/自动刷新）'}
+              label={
+                isEn ? 'App Settings (theme/lang/auto-refresh)' : 'App 设置（主题/语言/自动刷新）'
+              }
               checked={opts.appSettings}
               onChange={(v) => setOpts((p) => ({ ...p, appSettings: v }))}
             />
@@ -397,11 +439,14 @@ export function ConfigSyncPage(): React.ReactNode {
                 onCheckedChange={(v) => setOpts((p) => ({ ...p, includeProxyCredentials: v }))}
               />
               <Label className="text-xs cursor-pointer flex items-center gap-1.5">
-                {opts.includeProxyCredentials
-                  ? <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                  : <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground" />
-                }
-                {isEn ? 'Include proxy credentials (NOT recommended for sharing)' : '包含代理密码（分享时不建议）'}
+                {opts.includeProxyCredentials ? (
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                ) : (
+                  <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+                {isEn
+                  ? 'Include proxy credentials (NOT recommended for sharing)'
+                  : '包含代理密码（分享时不建议）'}
               </Label>
             </div>
             {/* C4: 加密导出 */}
@@ -424,7 +469,11 @@ export function ConfigSyncPage(): React.ReactNode {
                 className="h-8 px-2 rounded-md border bg-background text-xs flex-1 max-w-xs"
               />
             )}
-            <Button className="ml-auto" onClick={handleExport} disabled={opts.encrypt && !encryptPassword.trim()}>
+            <Button
+              className="ml-auto"
+              onClick={handleExport}
+              disabled={opts.encrypt && !encryptPassword.trim()}
+            >
               <FileJson className="h-4 w-4 mr-2" />
               {isEn ? 'Export' : '导出'}
             </Button>
@@ -434,8 +483,7 @@ export function ConfigSyncPage(): React.ReactNode {
             <p className="text-[10px] text-muted-foreground">
               {isEn
                 ? `Last export: ${(lastExportSize / 1024).toFixed(1)} KB`
-                : `上次导出大小: ${(lastExportSize / 1024).toFixed(1)} KB`
-              }
+                : `上次导出大小: ${(lastExportSize / 1024).toFixed(1)} KB`}
             </p>
           )}
         </CardContent>
@@ -453,8 +501,7 @@ export function ConfigSyncPage(): React.ReactNode {
           <Label className="text-xs">
             {isEn
               ? 'Choose a previously exported config JSON. Duplicates will be merged/skipped automatically.'
-              : '选择之前导出的配置 JSON 文件。重复项会自动合并/跳过。'
-            }
+              : '选择之前导出的配置 JSON 文件。重复项会自动合并/跳过。'}
           </Label>
           <div className="flex items-center gap-2">
             <input
@@ -470,11 +517,13 @@ export function ConfigSyncPage(): React.ReactNode {
           </div>
 
           {lastImportResult && (
-            <div className={`p-3 rounded-lg border ${
-              lastImportResult.success
-                ? 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/10'
-                : 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/10'
-            }`}>
+            <div
+              className={`p-3 rounded-lg border ${
+                lastImportResult.success
+                  ? 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/10'
+                  : 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/10'
+              }`}
+            >
               {lastImportResult.success ? (
                 <>
                   <div className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-300">
@@ -520,10 +569,14 @@ export function ConfigSyncPage(): React.ReactNode {
             size="sm"
             className="text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-950/20"
             onClick={() => {
-              if (!confirm(isEn
-                ? 'Reset register page preferences (rate limit / schedule / quota / mixed sources / blacklist / templates)? This does NOT affect accounts.'
-                : '重置注册页所有偏好（限速/定时/配额/混合源/黑名单/模板）？不影响账号数据。'
-              )) return
+              if (
+                !confirm(
+                  isEn
+                    ? 'Reset register page preferences (rate limit / schedule / quota / mixed sources / blacklist / templates)? This does NOT affect accounts.'
+                    : '重置注册页所有偏好（限速/定时/配额/混合源/黑名单/模板）？不影响账号数据。'
+                )
+              )
+                return
               for (const k of REGISTER_LS_KEYS) localStorage.removeItem(k)
               localStorage.removeItem('kiro-register-templates')
               localStorage.removeItem('kiro-register-email-blacklist')
@@ -539,7 +592,15 @@ export function ConfigSyncPage(): React.ReactNode {
   )
 }
 
-function ExportToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }): React.ReactNode {
+function ExportToggle({
+  label,
+  checked,
+  onChange
+}: {
+  label: string
+  checked: boolean
+  onChange: (v: boolean) => void
+}): React.ReactNode {
   return (
     <label className="flex items-center gap-2 p-2 rounded hover:bg-muted/40 cursor-pointer">
       <Switch checked={checked} onCheckedChange={onChange} />

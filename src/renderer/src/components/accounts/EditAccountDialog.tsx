@@ -11,11 +11,7 @@ interface EditAccountDialogProps {
   account: Account | null
 }
 
-export function EditAccountDialog({
-  open,
-  onOpenChange,
-  account
-}: EditAccountDialogProps) {
+export function EditAccountDialog({ open, onOpenChange, account }: EditAccountDialogProps) {
   const { updateAccount } = useAccountsStore()
   const { t } = useTranslation()
   const isEn = t('common.unknown') === 'Unknown'
@@ -36,7 +32,7 @@ export function EditAccountDialog({
     accessToken: string
     subscriptionType: string
     subscriptionTitle: string
-    usage: { 
+    usage: {
       current: number
       limit: number
       baseLimit?: number
@@ -72,7 +68,7 @@ export function EditAccountDialog({
       setClientSecret(account.credentials.clientSecret || '')
       setRegion(account.credentials.region || 'us-east-1')
       setNickname(account.nickname || '')
-      
+
       // 设置当前账号信息
       setAccountInfo({
         email: account.email,
@@ -188,9 +184,8 @@ export function EditAccountDialog({
       usage: {
         current: accountInfo.usage.current,
         limit: accountInfo.usage.limit,
-        percentUsed: accountInfo.usage.limit > 0 
-          ? accountInfo.usage.current / accountInfo.usage.limit 
-          : 0,
+        percentUsed:
+          accountInfo.usage.limit > 0 ? accountInfo.usage.current / accountInfo.usage.limit : 0,
         lastUpdated: now,
         baseLimit: accountInfo.usage.baseLimit,
         baseCurrent: accountInfo.usage.baseCurrent,
@@ -216,12 +211,21 @@ export function EditAccountDialog({
         {/* 头部 */}
         <CardHeader className="pb-4 border-b sticky top-0 bg-background z-20">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-xl font-bold">{isEn ? 'Edit Account' : '编辑账号'}</CardTitle>
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-red-500 hover:text-white transition-colors" onClick={() => onOpenChange(false)}>
+            <CardTitle className="text-xl font-bold">
+              {isEn ? 'Edit Account' : '编辑账号'}
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-full hover:bg-red-500 hover:text-white transition-colors"
+              onClick={() => onOpenChange(false)}
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">{isEn ? 'Modify account settings or update credentials' : '修改账号配置或更新凭证'}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {isEn ? 'Modify account settings or update credentials' : '修改账号配置或更新凭证'}
+          </p>
         </CardHeader>
 
         <CardContent className="p-6 space-y-6">
@@ -229,7 +233,9 @@ export function EditAccountDialog({
           {accountInfo && (
             <div className="p-4 bg-primary/5 rounded-xl border border-primary/10 space-y-3">
               <div className="flex items-center justify-between border-b border-primary/10 pb-2">
-                <span className="text-sm font-semibold text-foreground/80">{isEn ? 'Account Status' : '当前账号状态'}</span>
+                <span className="text-sm font-semibold text-foreground/80">
+                  {isEn ? 'Account Status' : '当前账号状态'}
+                </span>
                 <div className="px-2.5 py-0.5 rounded-full bg-success/10 text-success text-xs font-medium flex items-center gap-1.5">
                   <CheckCircle className="h-3.5 w-3.5" />
                   {isEn ? 'Verified' : '已验证'}
@@ -237,22 +243,38 @@ export function EditAccountDialog({
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-muted-foreground text-xs block mb-1">{isEn ? 'Email' : '邮箱'}</span>
-                  <span className="font-medium font-mono text-xs truncate block" title={accountInfo.email}>{accountInfo.email}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground text-xs block mb-1">{isEn ? 'Plan' : '订阅计划'}</span>
-                  <span className="font-medium">{accountInfo.subscriptionTitle}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground text-xs block mb-1">{isEn ? 'Usage' : '使用额度'}</span>
-                  <span className="font-medium">
-                    {accountInfo.usage.current.toLocaleString()} / {accountInfo.usage.limit.toLocaleString()}
+                  <span className="text-muted-foreground text-xs block mb-1">
+                    {isEn ? 'Email' : '邮箱'}
+                  </span>
+                  <span
+                    className="font-medium font-mono text-xs truncate block"
+                    title={accountInfo.email}
+                  >
+                    {accountInfo.email}
                   </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground text-xs block mb-1">{isEn ? 'Days Left' : '剩余天数'}</span>
-                  <span className="font-medium">{accountInfo.daysRemaining ?? '-'} {isEn ? 'd' : '天'}</span>
+                  <span className="text-muted-foreground text-xs block mb-1">
+                    {isEn ? 'Plan' : '订阅计划'}
+                  </span>
+                  <span className="font-medium">{accountInfo.subscriptionTitle}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground text-xs block mb-1">
+                    {isEn ? 'Usage' : '使用额度'}
+                  </span>
+                  <span className="font-medium">
+                    {accountInfo.usage.current.toLocaleString()} /{' '}
+                    {accountInfo.usage.limit.toLocaleString()}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground text-xs block mb-1">
+                    {isEn ? 'Days Left' : '剩余天数'}
+                  </span>
+                  <span className="font-medium">
+                    {accountInfo.daysRemaining ?? '-'} {isEn ? 'd' : '天'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -275,7 +297,13 @@ export function EditAccountDialog({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold">
-                  {account?.credentials.authMethod === 'social' ? (isEn ? 'Social Login' : '社交登录凭证') : (isEn ? 'OIDC Credentials' : 'OIDC 凭证配置')}
+                  {account?.credentials.authMethod === 'social'
+                    ? isEn
+                      ? 'Social Login'
+                      : '社交登录凭证'
+                    : isEn
+                      ? 'OIDC Credentials'
+                      : 'OIDC 凭证配置'}
                 </h3>
                 {account?.credentials.authMethod === 'social' && (
                   <span className="px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary">
@@ -284,9 +312,9 @@ export function EditAccountDialog({
                 )}
               </div>
               {account?.credentials.authMethod !== 'social' && (
-                <Button 
-                  type="button" 
-                  variant="outline" 
+                <Button
+                  type="button"
+                  variant="outline"
                   size="sm"
                   className="h-8 rounded-lg text-xs"
                   onClick={handleImportFromLocal}
@@ -299,7 +327,9 @@ export function EditAccountDialog({
 
             {account?.credentials.authMethod === 'social' && (
               <p className="text-xs text-muted-foreground">
-                {isEn ? 'Social login only needs Refresh Token' : '社交登录账号只需要 Refresh Token，不需要 Client ID 和 Client Secret'}
+                {isEn
+                  ? 'Social login only needs Refresh Token'
+                  : '社交登录账号只需要 Refresh Token，不需要 Client ID 和 Client Secret'}
               </p>
             )}
 
@@ -316,8 +346,12 @@ export function EditAccountDialog({
                       className="h-7 px-2 text-xs"
                       onClick={handleCopyAccessToken}
                     >
-                      {copiedToken ? <Check className="h-3 w-3 mr-1 text-success" /> : <Copy className="h-3 w-3 mr-1" />}
-                      {copiedToken ? (isEn ? 'Copied' : '已复制') : (isEn ? 'Copy' : '复制')}
+                      {copiedToken ? (
+                        <Check className="h-3 w-3 mr-1 text-success" />
+                      ) : (
+                        <Copy className="h-3 w-3 mr-1" />
+                      )}
+                      {copiedToken ? (isEn ? 'Copied' : '已复制') : isEn ? 'Copy' : '复制'}
                     </Button>
                   </div>
                   <div className="w-full px-3 py-2.5 text-sm rounded-xl border border-input bg-muted/50 font-mono text-muted-foreground truncate">
@@ -383,12 +417,16 @@ export function EditAccountDialog({
                 </>
               )}
 
-              <Button 
-                type="button" 
+              <Button
+                type="button"
                 variant="secondary"
                 className="w-full h-10 rounded-xl font-medium"
                 onClick={handleVerifyAndRefresh}
-                disabled={isVerifying || !refreshToken || (account?.credentials.authMethod !== 'social' && (!clientId || !clientSecret))}
+                disabled={
+                  isVerifying ||
+                  !refreshToken ||
+                  (account?.credentials.authMethod !== 'social' && (!clientId || !clientSecret))
+                }
               >
                 {isVerifying ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -411,7 +449,11 @@ export function EditAccountDialog({
 
         {/* 底部按钮 */}
         <div className="sticky bottom-0 bg-background/95 backdrop-blur p-4 border-t flex justify-end gap-3 z-20">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-xl h-10 px-6">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            className="rounded-xl h-10 px-6"
+          >
             {isEn ? 'Cancel' : '取消'}
           </Button>
           <Button onClick={handleSave} disabled={!accountInfo} className="rounded-xl h-10 px-6">
@@ -422,5 +464,3 @@ export function EditAccountDialog({
     </div>
   )
 }
-
-

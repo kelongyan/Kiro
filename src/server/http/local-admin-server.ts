@@ -1,11 +1,14 @@
 import { randomBytes } from 'crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import { publishEvent, subscribeEvents, getEventHistory, type ServerEvent } from '../events'
+import { Router } from './router'
 
 export interface LocalAdminServerOptions {
   host?: string
   port?: number
   accessToken?: string
+  /** 额外注册的路由器（账号、认证等控制器） */
+  routers?: Router[]
 }
 
 export interface LocalAdminServerInfo {
@@ -32,11 +35,7 @@ function createAccessToken(): string {
 }
 
 function isLoopbackAddress(address?: string): boolean {
-  return (
-    address === '127.0.0.1' ||
-    address === '::1' ||
-    address === '::ffff:127.0.0.1'
-  )
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
 }
 
 function isAllowedOrigin(origin?: string): boolean {
@@ -77,18 +76,17 @@ function writeJson(res: ServerResponse, statusCode: number, body: unknown): void
 }
 
 function formatSseEvent(event: ServerEvent): string {
-  return [
-    `id: ${event.id}`,
-    `event: ${event.type}`,
-    `data: ${JSON.stringify(event)}`,
-    ''
-  ].join('\n') + '\n'
+  return (
+    [`id: ${event.id}`, `event: ${event.type}`, `data: ${JSON.stringify(event)}`, ''].join('\n') +
+    '\n'
+  )
 }
 
 export function createLocalAdminServer(options: LocalAdminServerOptions = {}): LocalAdminServer {
   const host = options.host || DEFAULT_HOST
   const port = options.port ?? 0
   const accessToken = options.accessToken || createAccessToken()
+  const routers = options.routers || []
   let server: Server | null = null
   let info: LocalAdminServerInfo | null = null
 
@@ -113,7 +111,7 @@ export function createLocalAdminServer(options: LocalAdminServerOptions = {}): L
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
+      Connection: 'keep-alive'
     })
 
     const lastEventId = req.headers['last-event-id']
@@ -136,7 +134,7 @@ export function createLocalAdminServer(options: LocalAdminServerOptions = {}): L
     })
   }
 
-  const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
+  const requestHandler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     setCorsHeaders(req, res)
 
     if (req.method === 'OPTIONS') {
@@ -152,6 +150,7 @@ export function createLocalAdminServer(options: LocalAdminServerOptions = {}): L
 
     const url = new URL(req.url || '/', `http://${host}`)
 
+    // 内置端点：health 无需 token
     if (req.method === 'GET' && url.pathname === '/api/health') {
       writeJson(res, 200, {
         ok: true,
@@ -162,6 +161,7 @@ export function createLocalAdminServer(options: LocalAdminServerOptions = {}): L
       return
     }
 
+    // 内置端点：events 需要授权
     if (req.method === 'GET' && url.pathname === '/api/events') {
       handleEvents(req, url, res)
       return
@@ -172,6 +172,15 @@ export function createLocalAdminServer(options: LocalAdminServerOptions = {}): L
       const event = publishEvent('test', { message: 'local admin event bus is ready' })
       writeJson(res, 200, { ok: true, event })
       return
+    }
+
+    // 控制器路由分发（需要授权）
+    if (routers.length > 0) {
+      if (!ensureAuthorized(req, url, res)) return
+      for (const router of routers) {
+        const matched = await router.dispatch(req, res, url)
+        if (matched) return
+      }
     }
 
     writeJson(res, 404, { ok: false, error: 'Not found' })

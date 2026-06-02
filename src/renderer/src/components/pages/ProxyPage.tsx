@@ -17,12 +17,13 @@ export function ProxyPage() {
             <Server className="h-6 w-6 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-primary">{isEn ? 'API Proxy Service' : 'API 反代服务'}</h1>
+            <h1 className="text-2xl font-bold text-primary">
+              {isEn ? 'API Proxy Service' : 'API 反代服务'}
+            </h1>
             <p className="text-muted-foreground">
-              {isEn 
+              {isEn
                 ? 'Provide OpenAI and Claude compatible API endpoints with multi-account rotation'
-                : '提供 OpenAI 和 Claude 兼容的 API 端点，支持多账号轮询'
-              }
+                : '提供 OpenAI 和 Claude 兼容的 API 端点，支持多账号轮询'}
             </p>
           </div>
         </div>

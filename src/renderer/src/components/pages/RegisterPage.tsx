@@ -1,29 +1,97 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { UserPlus, Mail, Key, Loader2, CheckCircle2, XCircle, Trash2, Play, Square, Clock, RotateCcw, RefreshCw, Download, Upload, Settings2, Link2, AtSign, Shuffle, Info, Pause, AlertTriangle, ShieldAlert, Gauge, Activity, CalendarClock, Timer } from 'lucide-react'
+import {
+  UserPlus,
+  Mail,
+  Key,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Trash2,
+  Play,
+  Square,
+  Clock,
+  RotateCcw,
+  RefreshCw,
+  Download,
+  Upload,
+  Settings2,
+  Link2,
+  AtSign,
+  Shuffle,
+  Info,
+  Pause,
+  AlertTriangle,
+  ShieldAlert,
+  Gauge,
+  Activity,
+  CalendarClock,
+  Timer
+} from 'lucide-react'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useAccountsStore } from '@/store/accounts'
 import { useTaskStore } from '@/store/tasks'
 import { createRateLimiter, type RateLimiter, type RateLimiterSnapshot } from '@/store/rateLimiter'
 import { useWebhookStore } from '@/store/webhooks'
-import { Card, CardContent, CardHeader, CardTitle, Button, Input, Label, Progress, Badge, Switch } from '../ui'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Button,
+  Input,
+  Label,
+  Progress,
+  Badge,
+  Switch
+} from '../ui'
 import { cn } from '@/lib/utils'
-import { appendSubscriptionLink, updateSubscriptionLink } from './SubscriptionPage'
-import { generateNextDotVariant, countSameRootVariants, totalVariantCount, splitEmail } from '@/lib/dotVariants'
+import { appendSubscriptionLink, updateSubscriptionLink } from './subscription-links'
+import {
+  generateNextDotVariant,
+  countSameRootVariants,
+  totalVariantCount,
+  splitEmail
+} from '@/lib/dotVariants'
 
 // 失败错误码归类：用于失败重试队列的过滤
-function classifyError(err: string | undefined): 'network' | 'otp_timeout' | 'email_used' | 'rate_limit' | 'auth' | 'risk_control' | 'unknown' {
+function classifyError(
+  err: string | undefined
+): 'network' | 'otp_timeout' | 'email_used' | 'rate_limit' | 'auth' | 'risk_control' | 'unknown' {
   if (!err) return 'unknown'
   const e = err.toLowerCase()
   // 风控触发（最优先识别，避免被 status 400 误归类）
-  if (e.includes('aws-risk-control') || e.includes('风控') || e.includes('请稍后再试')) return 'risk_control'
+  if (e.includes('aws-risk-control') || e.includes('风控') || e.includes('请稍后再试'))
+    return 'risk_control'
   if (e.includes('timeout') || e.includes('超时') || e.includes('etimedout')) {
     if (e.includes('otp') || e.includes('验证码') || e.includes('code')) return 'otp_timeout'
     return 'network'
   }
-  if (e.includes('fetch failed') || e.includes('econnreset') || e.includes('econnrefused') || e.includes('network')) return 'network'
-  if (e.includes('email') && (e.includes('already') || e.includes('exists') || e.includes('used') || e.includes('已存在') || e.includes('已被'))) return 'email_used'
-  if (e.includes('rate') || e.includes('limit') || e.includes('too many') || e.includes('限流') || e.includes('429')) return 'rate_limit'
-  if (e.includes('auth') || e.includes('unauthorized') || e.includes('401') || e.includes('403')) return 'auth'
+  if (
+    e.includes('fetch failed') ||
+    e.includes('econnreset') ||
+    e.includes('econnrefused') ||
+    e.includes('network')
+  )
+    return 'network'
+  if (
+    e.includes('email') &&
+    (e.includes('already') ||
+      e.includes('exists') ||
+      e.includes('used') ||
+      e.includes('已存在') ||
+      e.includes('已被'))
+  )
+    return 'email_used'
+  if (
+    e.includes('rate') ||
+    e.includes('limit') ||
+    e.includes('too many') ||
+    e.includes('限流') ||
+    e.includes('429')
+  )
+    return 'rate_limit'
+  if (e.includes('auth') || e.includes('unauthorized') || e.includes('401') || e.includes('403'))
+    return 'auth'
   return 'unknown'
 }
 
@@ -41,7 +109,16 @@ type AutoEmailSource = 'outlook' | 'tempmail'
  * - fetching-link：正在获取 Pro 订阅链接
  * - finalized：包含所有后处理在内的最终完成
  */
-type Phase = 'idle' | 'initializing' | 'email' | 'otp' | 'running' | 'done' | 'importing' | 'fetching-link' | 'finalized'
+type Phase =
+  | 'idle'
+  | 'initializing'
+  | 'email'
+  | 'otp'
+  | 'running'
+  | 'done'
+  | 'importing'
+  | 'fetching-link'
+  | 'finalized'
 
 interface FingerprintSnapshot {
   chromeVer: string
@@ -68,7 +145,14 @@ interface RegResult {
   fingerprint?: FingerprintSnapshot
 }
 
-type BatchItemStatus = 'pending' | 'running' | 'retrying' | 'success' | 'failed' | 'imported' | 'import_failed'
+type BatchItemStatus =
+  | 'pending'
+  | 'running'
+  | 'retrying'
+  | 'success'
+  | 'failed'
+  | 'imported'
+  | 'import_failed'
 
 interface HistoryItem {
   id: string
@@ -123,11 +207,16 @@ function phaseToStep(phase: Phase, lastLog: string | undefined, steps: readonly 
   const lastIdx = steps.length - 1
 
   switch (phase) {
-    case 'idle': return -1
-    case 'initializing': return idxOf('OIDC')
-    case 'email': return idxOf('Email')
-    case 'otp': return idxOf('Verify')
-    case 'done': return idxOf('Done')  // 核心流程完成（未启用后处理时即最终态）
+    case 'idle':
+      return -1
+    case 'initializing':
+      return idxOf('OIDC')
+    case 'email':
+      return idxOf('Email')
+    case 'otp':
+      return idxOf('Verify')
+    case 'done':
+      return idxOf('Done') // 核心流程完成（未启用后处理时即最终态）
     case 'importing': {
       const i = idxOf('Import')
       return i >= 0 ? i : idxOf('Done')
@@ -136,12 +225,17 @@ function phaseToStep(phase: Phase, lastLog: string | undefined, steps: readonly 
       const i = idxOf('ProLink')
       return i >= 0 ? i : idxOf('Done')
     }
-    case 'finalized': return lastIdx
+    case 'finalized':
+      return lastIdx
     case 'running': {
       if (!lastLog) return Math.max(0, idxOf('Email'))
       const log = lastLog.toLowerCase()
       // 自动模式 OTP 提交时也走 running，这里识别后处理消息
-      if (log.includes('正在获取 pro') || log.includes('pro link') || log.includes('fetching pro')) {
+      if (
+        log.includes('正在获取 pro') ||
+        log.includes('pro link') ||
+        log.includes('fetching pro')
+      ) {
         const i = idxOf('ProLink')
         if (i >= 0) return i
       }
@@ -150,15 +244,26 @@ function phaseToStep(phase: Phase, lastLog: string | undefined, steps: readonly 
         if (i >= 0) return i
       }
       // [13] SSO Token / [12.5] complete-signup / 验活成功
-      if (log.includes('sso') || log.includes('token') || log.includes('验活') || log.includes('complete') || log.includes('end-of-workflow')) return idxOf('Token')
+      if (
+        log.includes('sso') ||
+        log.includes('token') ||
+        log.includes('验活') ||
+        log.includes('complete') ||
+        log.includes('end-of-workflow')
+      )
+        return idxOf('Token')
       // [12] 设置密码 / SetPassword / 加密公钥
-      if (log.includes('密码') || log.includes('password') || log.includes('加密公钥')) return idxOf('Password')
+      if (log.includes('密码') || log.includes('password') || log.includes('加密公钥'))
+        return idxOf('Password')
       // [9] OTP / [10] verify-email / signup verify
-      if (log.includes('验证码') || log.includes('otp') || log.includes('verify')) return idxOf('Verify')
+      if (log.includes('验证码') || log.includes('otp') || log.includes('verify'))
+        return idxOf('Verify')
       // [7-8] Signup / SignupInit / Profile
-      if (log.includes('signup') || log.includes('profile') || log.includes('注册初始化')) return idxOf('Verify')
+      if (log.includes('signup') || log.includes('profile') || log.includes('注册初始化'))
+        return idxOf('Verify')
       // [6] 提交邮箱 / SubmitEmail
-      if (log.includes('提交邮箱') || log.includes('submit') || log.includes('邮箱')) return idxOf('Email')
+      if (log.includes('提交邮箱') || log.includes('submit') || log.includes('邮箱'))
+        return idxOf('Email')
       return Math.max(0, idxOf('Email'))
     }
   }
@@ -181,12 +286,18 @@ interface RegisterTemplate {
 function loadTemplates(): RegisterTemplate[] {
   try {
     const raw = localStorage.getItem(TEMPLATES_KEY)
-    return raw ? JSON.parse(raw) as RegisterTemplate[] : []
-  } catch { return [] }
+    return raw ? (JSON.parse(raw) as RegisterTemplate[]) : []
+  } catch {
+    return []
+  }
 }
 
 function saveTemplates(items: RegisterTemplate[]): void {
-  try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(items)) } catch { /* ignore */ }
+  try {
+    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(items))
+  } catch {
+    /* ignore */
+  }
 }
 
 function loadEmailBlacklist(): Set<string> {
@@ -205,11 +316,17 @@ function saveEmailBlacklist(set: Set<string>): void {
     // 限制最多 5000 条，避免无限增长
     const arr = Array.from(set).slice(-5000)
     localStorage.setItem(EMAIL_BLACKLIST_KEY, JSON.stringify(arr))
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 function clearEmailBlacklist(): void {
-  try { localStorage.removeItem(EMAIL_BLACKLIST_KEY) } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(EMAIL_BLACKLIST_KEY)
+  } catch {
+    /* ignore */
+  }
 }
 
 // 模块级状态：组件卸载后仍保留（同一会话内）
@@ -231,7 +348,8 @@ let _refSetBatchDone: ((v: number) => void) | null = null
 let _refSetBatchSuccess: ((v: number) => void) | null = null
 let _refSetBatchFail: ((v: number) => void) | null = null
 let _refSetBatchItems: ((v: BatchItem[]) => void) | null = null
-let _refSetHistory: ((v: HistoryItem[] | ((prev: HistoryItem[]) => HistoryItem[])) => void) | null = null
+let _refSetHistory: ((v: HistoryItem[] | ((prev: HistoryItem[]) => HistoryItem[])) => void) | null =
+  null
 
 function loadHistory(): HistoryItem[] {
   try {
@@ -243,11 +361,18 @@ function loadHistory(): HistoryItem[] {
 }
 
 function saveHistory(items: HistoryItem[]): void {
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 100))) } catch { /* ignore */ }
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 100)))
+  } catch {
+    /* ignore */
+  }
 }
 
 /** 订阅计划类型（对应 Kiro 后端 qSubscriptionType）*/
-export type ProPlanType = 'Q_DEVELOPER_STANDALONE_PRO' | 'Q_DEVELOPER_STANDALONE_PRO_PLUS' | 'Q_DEVELOPER_STANDALONE_POWER'
+export type ProPlanType =
+  | 'Q_DEVELOPER_STANDALONE_PRO'
+  | 'Q_DEVELOPER_STANDALONE_PRO_PLUS'
+  | 'Q_DEVELOPER_STANDALONE_POWER'
 
 interface RegisterConfig {
   mode: RegMode
@@ -281,7 +406,11 @@ function loadConfig(): Partial<RegisterConfig> {
 }
 
 function saveConfig(cfg: RegisterConfig): void {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)) } catch { /* ignore */ }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg))
+  } catch {
+    /* ignore */
+  }
 }
 
 export function RegisterPage(): React.JSX.Element {
@@ -295,8 +424,14 @@ export function RegisterPage(): React.JSX.Element {
   const [result, _setResult] = useState<RegResult | null>(_result)
   const [imported, setImported] = useState(false)
 
-  const setPhase = useCallback((p: Phase) => { _phase = p; _refSetPhase?.(p) }, [])
-  const setResult = useCallback((r: RegResult | null) => { _result = r; _refSetResult?.(r) }, [])
+  const setPhase = useCallback((p: Phase) => {
+    _phase = p
+    _refSetPhase?.(p)
+  }, [])
+  const setResult = useCallback((r: RegResult | null) => {
+    _result = r
+    _refSetResult?.(r)
+  }, [])
 
   // 手动模式
   const [email, setEmail] = useState('')
@@ -391,14 +526,19 @@ export function RegisterPage(): React.JSX.Element {
       }
       preEmail = result.variant
       setEmail(preEmail)
-      addLog(t('register.logAnonymousGenerated').replace('{email}', preEmail).replace('{dots}', String(result.dotCount)))
+      addLog(
+        t('register.logAnonymousGenerated')
+          .replace('{email}', preEmail)
+          .replace('{dots}', String(result.dotCount))
+      )
     } else if (parentEmail.trim()) {
       preEmail = parentEmail.trim()
       setEmail(preEmail)
     }
 
     setPhase('initializing')
-    _logs = []; setLogs([])
+    _logs = []
+    setLogs([])
     setResult(null)
     setImported(false)
     addLog(t('register.logManualInit'))
@@ -418,7 +558,10 @@ export function RegisterPage(): React.JSX.Element {
     if (preEmail) {
       setPhase('running')
       addLog(`${t('register.logSubmitEmail')} ${preEmail}`)
-      const phase2Res = await window.api.registrationManualPhase2(preEmail, fullName.trim() || undefined)
+      const phase2Res = await window.api.registrationManualPhase2(
+        preEmail,
+        fullName.trim() || undefined
+      )
       if (phase2Res.success) {
         addLog(t('register.logOtpSent'))
         setPhase('otp')
@@ -434,7 +577,10 @@ export function RegisterPage(): React.JSX.Element {
     setPhase('running')
     addLog(`${t('register.logSubmitEmail')} ${email}`)
 
-    const res = await window.api.registrationManualPhase2(email.trim(), fullName.trim() || undefined)
+    const res = await window.api.registrationManualPhase2(
+      email.trim(),
+      fullName.trim() || undefined
+    )
     if (res.success) {
       addLog(t('register.logOtpSent'))
       setPhase('otp')
@@ -454,7 +600,12 @@ export function RegisterPage(): React.JSX.Element {
       const regResult = res.result as RegResult
       setResult(regResult)
       setPhase('done')
-      addHistory({ email: regResult.email, status: regResult.status, password: regResult.password, result: regResult })
+      addHistory({
+        email: regResult.email,
+        status: regResult.status,
+        password: regResult.password,
+        result: regResult
+      })
       const isSuccess = regResult.status === 'success'
       const needImport = batchAutoImport && isSuccess
       const needProLink = autoFetchProLink && isSuccess
@@ -467,7 +618,11 @@ export function RegisterPage(): React.JSX.Element {
           addLog(t('register.logImported'))
           setHistory((prev) => {
             const idx = prev.findIndex((h) => h.email === regResult.email && !h.imported)
-            if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], imported: true }; return u }
+            if (idx >= 0) {
+              const u = [...prev]
+              u[idx] = { ...u[idx], imported: true }
+              return u
+            }
             return prev
           })
         }
@@ -490,7 +645,8 @@ export function RegisterPage(): React.JSX.Element {
 
   const startAuto = async (): Promise<void> => {
     setPhase('running')
-    _logs = []; setLogs([])
+    _logs = []
+    setLogs([])
     setResult(null)
     setImported(false)
     const modeLabel = mode === 'tempmail' ? 'TempMail.Plus' : 'Outlook'
@@ -507,7 +663,9 @@ export function RegisterPage(): React.JSX.Element {
       config.tempMailPlusDomain = tempMailDomain
     }
 
-    const res = await window.api.registrationStartAuto(config as Parameters<typeof window.api.registrationStartAuto>[0])
+    const res = await window.api.registrationStartAuto(
+      config as Parameters<typeof window.api.registrationStartAuto>[0]
+    )
     if (!res.success) {
       addLog(`${t('register.logStartFailed')} ${res.error}`)
       setPhase('idle')
@@ -547,9 +705,12 @@ export function RegisterPage(): React.JSX.Element {
         const usage = verifyResult.data.usage
           ? {
               ...verifyResult.data.usage,
-              percentUsed: verifyResult.data.usage.limit > 0
-                ? Math.round((verifyResult.data.usage.current / verifyResult.data.usage.limit) * 100)
-                : 0,
+              percentUsed:
+                verifyResult.data.usage.limit > 0
+                  ? Math.round(
+                      (verifyResult.data.usage.current / verifyResult.data.usage.limit) * 100
+                    )
+                  : 0,
               lastUpdated: now
             }
           : defaultUsage
@@ -570,7 +731,13 @@ export function RegisterPage(): React.JSX.Element {
             expiresAt
           },
           subscription: {
-            type: (verifyResult.data.subscriptionType as 'Free' | 'Pro' | 'Pro_Plus' | 'Enterprise' | 'Teams') || 'Free',
+            type:
+              (verifyResult.data.subscriptionType as
+                | 'Free'
+                | 'Pro'
+                | 'Pro_Plus'
+                | 'Enterprise'
+                | 'Teams') || 'Free',
             title: verifyResult.data.subscriptionTitle || 'Free Tier'
           },
           usage,
@@ -610,7 +777,11 @@ export function RegisterPage(): React.JSX.Element {
   }
 
   // 'isRunning' 表示注册流程主线进行中（不含 idle/email/otp 等待用户输入态、也不含完成态）
-  const isRunning = phase === 'initializing' || phase === 'running' || phase === 'importing' || phase === 'fetching-link'
+  const isRunning =
+    phase === 'initializing' ||
+    phase === 'running' ||
+    phase === 'importing' ||
+    phase === 'fetching-link'
   // manualSteps / currentStep 在下方"批量注册"区块的 state 定义之后计算
 
   // ============ 批量注册 ============
@@ -625,7 +796,9 @@ export function RegisterPage(): React.JSX.Element {
   const [batchRetries, setBatchRetries] = useState(saved.batchRetries ?? 1)
   const [batchConcurrency, setBatchConcurrency] = useState(saved.batchConcurrency ?? 1)
   const [autoFetchProLink, setAutoFetchProLink] = useState(saved.autoFetchProLink ?? false)
-  const [proPlanType, setProPlanType] = useState<ProPlanType>(saved.proPlanType ?? 'Q_DEVELOPER_STANDALONE_PRO')
+  const [proPlanType, setProPlanType] = useState<ProPlanType>(
+    saved.proPlanType ?? 'Q_DEVELOPER_STANDALONE_PRO'
+  )
   const [batchItems, _setBatchItems] = useState<BatchItem[]>(_batchItems)
 
   // 动态构建注册步骤（根据是否启用自动导入 / Pro 链接）
@@ -636,18 +809,29 @@ export function RegisterPage(): React.JSX.Element {
   const lastLogText = logs.length > 0 ? logs[logs.length - 1] : undefined
   const currentStep = phaseToStep(phase, lastLogText, manualSteps)
 
-  const setBatchRunning = (v: boolean) => { _batchRunning = v; _refSetBatchRunning?.(v) }
+  const setBatchRunning = (v: boolean) => {
+    _batchRunning = v
+    _refSetBatchRunning?.(v)
+  }
   const setBatchDone = (v: number | ((p: number) => number)) => {
-    const next = typeof v === 'function' ? v(_batchDone) : v; _batchDone = next; _refSetBatchDone?.(next)
+    const next = typeof v === 'function' ? v(_batchDone) : v
+    _batchDone = next
+    _refSetBatchDone?.(next)
   }
   const setBatchSuccess = (v: number | ((p: number) => number)) => {
-    const next = typeof v === 'function' ? v(_batchSuccess) : v; _batchSuccess = next; _refSetBatchSuccess?.(next)
+    const next = typeof v === 'function' ? v(_batchSuccess) : v
+    _batchSuccess = next
+    _refSetBatchSuccess?.(next)
   }
   const setBatchFail = (v: number | ((p: number) => number)) => {
-    const next = typeof v === 'function' ? v(_batchFail) : v; _batchFail = next; _refSetBatchFail?.(next)
+    const next = typeof v === 'function' ? v(_batchFail) : v
+    _batchFail = next
+    _refSetBatchFail?.(next)
   }
   const setBatchItems = (v: BatchItem[] | ((p: BatchItem[]) => BatchItem[])) => {
-    const next = typeof v === 'function' ? v(_batchItems) : v; _batchItems = next; _refSetBatchItems?.(next)
+    const next = typeof v === 'function' ? v(_batchItems) : v
+    _batchItems = next
+    _refSetBatchItems?.(next)
   }
   const batchAbort = useRef(false)
   // 暂停状态：仅暂停"启动新任务"，已并发执行的会跑完
@@ -670,7 +854,9 @@ export function RegisterPage(): React.JSX.Element {
         mixed = arr.filter((x): x is AutoEmailSource => x === 'outlook' || x === 'tempmail')
         if (mixed.length === 0) mixed = ['outlook', 'tempmail']
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return {
       mode,
       outlookData,
@@ -689,30 +875,49 @@ export function RegisterPage(): React.JSX.Element {
       manualAnonymousEmail: anonymousEmail,
       mixedEnabledSources: mixed
     }
-  }, [mode, outlookData, fullName, batchCount, batchInterval, batchAutoImport, batchRetries, batchConcurrency, autoFetchProLink, proPlanType, tempMailEmail, tempMailEpin, tempMailDomain, parentEmail, anonymousEmail])
+  }, [
+    mode,
+    outlookData,
+    fullName,
+    batchCount,
+    batchInterval,
+    batchAutoImport,
+    batchRetries,
+    batchConcurrency,
+    autoFetchProLink,
+    proPlanType,
+    tempMailEmail,
+    tempMailEpin,
+    tempMailDomain,
+    parentEmail,
+    anonymousEmail
+  ])
 
-  const applyTemplate = useCallback((tpl: RegisterTemplate) => {
-    const c = tpl.config
-    // 兼容老模板：mode === 'moemail' 时回退到 outlook
-    setMode((c.mode === ('moemail' as RegMode) ? 'outlook' : c.mode) as RegMode)
-    setOutlookData(c.outlookData || '')
-    setFullName(c.fullName || '')
-    setBatchCount(c.batchCount ?? 1)
-    setBatchInterval(c.batchInterval ?? 5)
-    setBatchAutoImport(c.batchAutoImport ?? true)
-    setBatchRetries(c.batchRetries ?? 1)
-    setBatchConcurrency(c.batchConcurrency ?? 1)
-    setAutoFetchProLink(c.autoFetchProLink ?? false)
-    setProPlanType(c.proPlanType ?? 'Q_DEVELOPER_STANDALONE_PRO')
-    setTempMailEmail(c.tempMailEmail || '')
-    setTempMailEpin(c.tempMailEpin || '')
-    setTempMailDomain(c.tempMailDomain || '')
-    setParentEmail(c.manualParentEmail || '')
-    setAnonymousEmail(c.manualAnonymousEmail ?? false)
-    if (c.mixedEnabledSources) setMixedEnabledSources(c.mixedEnabledSources)
-    addLog(`[Template] 已应用模板：${tpl.name}`)
-    setShowTemplatesMenu(false)
-  }, [addLog])
+  const applyTemplate = useCallback(
+    (tpl: RegisterTemplate) => {
+      const c = tpl.config
+      // 兼容老模板：mode === 'moemail' 时回退到 outlook
+      setMode((c.mode === ('moemail' as RegMode) ? 'outlook' : c.mode) as RegMode)
+      setOutlookData(c.outlookData || '')
+      setFullName(c.fullName || '')
+      setBatchCount(c.batchCount ?? 1)
+      setBatchInterval(c.batchInterval ?? 5)
+      setBatchAutoImport(c.batchAutoImport ?? true)
+      setBatchRetries(c.batchRetries ?? 1)
+      setBatchConcurrency(c.batchConcurrency ?? 1)
+      setAutoFetchProLink(c.autoFetchProLink ?? false)
+      setProPlanType(c.proPlanType ?? 'Q_DEVELOPER_STANDALONE_PRO')
+      setTempMailEmail(c.tempMailEmail || '')
+      setTempMailEpin(c.tempMailEpin || '')
+      setTempMailDomain(c.tempMailDomain || '')
+      setParentEmail(c.manualParentEmail || '')
+      setAnonymousEmail(c.manualAnonymousEmail ?? false)
+      if (c.mixedEnabledSources) setMixedEnabledSources(c.mixedEnabledSources)
+      addLog(`[Template] 已应用模板：${tpl.name}`)
+      setShowTemplatesMenu(false)
+    },
+    [addLog]
+  )
 
   const saveCurrentAsTemplate = useCallback(() => {
     const name = prompt('为当前配置保存为模板，请输入模板名称：')?.trim()
@@ -729,12 +934,15 @@ export function RegisterPage(): React.JSX.Element {
     addLog(`[Template] 已保存模板：${name}`)
   }, [collectCurrentConfig, templates, addLog])
 
-  const removeTemplate = useCallback((id: string) => {
-    if (!confirm('确定删除这个模板？')) return
-    const next = templates.filter((t) => t.id !== id)
-    setTemplates(next)
-    saveTemplates(next)
-  }, [templates])
+  const removeTemplate = useCallback(
+    (id: string) => {
+      if (!confirm('确定删除这个模板？')) return
+      const next = templates.filter((t) => t.id !== id)
+      setTemplates(next)
+      saveTemplates(next)
+    },
+    [templates]
+  )
 
   // ============ 定时任务 + 每日配额 ============
   // 每日已注册成功数（按本地日期聚合，跨日自动重置）
@@ -743,37 +951,88 @@ export function RegisterPage(): React.JSX.Element {
     return `kiro-register-quota-${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
   }, [])
   const [dailyQuotaUsed, setDailyQuotaUsedState] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem(dailyQuotaKey) || '0', 10) || 0 } catch { return 0 }
+    try {
+      return parseInt(localStorage.getItem(dailyQuotaKey) || '0', 10) || 0
+    } catch {
+      return 0
+    }
   })
-  const incrementDailyQuota = useCallback((n: number) => {
-    setDailyQuotaUsedState((prev) => {
-      const next = prev + n
-      try { localStorage.setItem(dailyQuotaKey, String(next)) } catch { /* ignore */ }
-      return next
-    })
-  }, [dailyQuotaKey])
+  const incrementDailyQuota = useCallback(
+    (n: number) => {
+      setDailyQuotaUsedState((prev) => {
+        const next = prev + n
+        try {
+          localStorage.setItem(dailyQuotaKey, String(next))
+        } catch {
+          /* ignore */
+        }
+        return next
+      })
+    },
+    [dailyQuotaKey]
+  )
 
   const [dailyQuotaLimit, setDailyQuotaLimit] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem('kiro-register-dailyquota-limit') || '0', 10) || 0 } catch { return 0 }
+    try {
+      return parseInt(localStorage.getItem('kiro-register-dailyquota-limit') || '0', 10) || 0
+    } catch {
+      return 0
+    }
   })
   const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(() => {
-    try { return localStorage.getItem('kiro-register-schedule-enabled') === '1' } catch { return false }
+    try {
+      return localStorage.getItem('kiro-register-schedule-enabled') === '1'
+    } catch {
+      return false
+    }
   })
   const [scheduleTime, setScheduleTime] = useState<string>(() => {
-    try { return localStorage.getItem('kiro-register-schedule-time') || '03:00' } catch { return '03:00' }
+    try {
+      return localStorage.getItem('kiro-register-schedule-time') || '03:00'
+    } catch {
+      return '03:00'
+    }
   })
   /** C6: 星期掩码（位 0=周日 ... 位 6=周六），默认每天（127） */
   const [scheduleWeekMask, setScheduleWeekMask] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem('kiro-register-schedule-week-mask') || '127', 10) } catch { return 127 }
+    try {
+      return parseInt(localStorage.getItem('kiro-register-schedule-week-mask') || '127', 10)
+    } catch {
+      return 127
+    }
   })
 
-  useEffect(() => { try { localStorage.setItem('kiro-register-dailyquota-limit', String(dailyQuotaLimit)) } catch { /* ignore */ } }, [dailyQuotaLimit])
-  useEffect(() => { try { localStorage.setItem('kiro-register-schedule-enabled', scheduleEnabled ? '1' : '0') } catch { /* ignore */ } }, [scheduleEnabled])
-  useEffect(() => { try { localStorage.setItem('kiro-register-schedule-time', scheduleTime) } catch { /* ignore */ } }, [scheduleTime])
-  useEffect(() => { try { localStorage.setItem('kiro-register-schedule-week-mask', String(scheduleWeekMask)) } catch { /* ignore */ } }, [scheduleWeekMask])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-dailyquota-limit', String(dailyQuotaLimit))
+    } catch {
+      /* ignore */
+    }
+  }, [dailyQuotaLimit])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-schedule-enabled', scheduleEnabled ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [scheduleEnabled])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-schedule-time', scheduleTime)
+    } catch {
+      /* ignore */
+    }
+  }, [scheduleTime])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-schedule-week-mask', String(scheduleWeekMask))
+    } catch {
+      /* ignore */
+    }
+  }, [scheduleWeekMask])
 
   // 定时任务：每分钟检查一次是否到点（含星期过滤）
-  const scheduleTriggered = useRef<string>('')  // 标记今日是否已触发，防止重复
+  const scheduleTriggered = useRef<string>('') // 标记今日是否已触发，防止重复
   useEffect(() => {
     if (!scheduleEnabled) return
     const tick = (): void => {
@@ -801,34 +1060,104 @@ export function RegisterPage(): React.JSX.Element {
   // ============ 限速 + 风控 ============
   // 持久化用户的限速配置
   const [rateLimitEnabled, setRateLimitEnabled] = useState<boolean>(() => {
-    try { return localStorage.getItem('kiro-register-ratelimit-enabled') === '1' } catch { return false }
+    try {
+      return localStorage.getItem('kiro-register-ratelimit-enabled') === '1'
+    } catch {
+      return false
+    }
   })
   const [maxPerMinute, setMaxPerMinute] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem('kiro-register-ratelimit-max') || '20', 10) || 20 } catch { return 20 }
+    try {
+      return parseInt(localStorage.getItem('kiro-register-ratelimit-max') || '20', 10) || 20
+    } catch {
+      return 20
+    }
   })
   const [burstSize, setBurstSize] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem('kiro-register-ratelimit-burst') || '5', 10) || 5 } catch { return 5 }
+    try {
+      return parseInt(localStorage.getItem('kiro-register-ratelimit-burst') || '5', 10) || 5
+    } catch {
+      return 5
+    }
   })
   const [backoffBaseSec, setBackoffBaseSec] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem('kiro-register-backoff-base-sec') || '5', 10) || 5 } catch { return 5 }
+    try {
+      return parseInt(localStorage.getItem('kiro-register-backoff-base-sec') || '5', 10) || 5
+    } catch {
+      return 5
+    }
   })
   const [backoffMaxSec, setBackoffMaxSec] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem('kiro-register-backoff-max-sec') || '120', 10) || 120 } catch { return 120 }
+    try {
+      return parseInt(localStorage.getItem('kiro-register-backoff-max-sec') || '120', 10) || 120
+    } catch {
+      return 120
+    }
   })
   const [autoBackoff, setAutoBackoff] = useState<boolean>(() => {
-    try { return localStorage.getItem('kiro-register-autobackoff') !== '0' } catch { return true }
+    try {
+      return localStorage.getItem('kiro-register-autobackoff') !== '0'
+    } catch {
+      return true
+    }
   })
   // 风控触发后自动暂停（B3）
   const [autoPauseOnRisk, setAutoPauseOnRisk] = useState<boolean>(() => {
-    try { return localStorage.getItem('kiro-register-autopause-risk') === '1' } catch { return false }
+    try {
+      return localStorage.getItem('kiro-register-autopause-risk') === '1'
+    } catch {
+      return false
+    }
   })
-  useEffect(() => { try { localStorage.setItem('kiro-register-ratelimit-enabled', rateLimitEnabled ? '1' : '0') } catch { /* ignore */ } }, [rateLimitEnabled])
-  useEffect(() => { try { localStorage.setItem('kiro-register-ratelimit-max', String(maxPerMinute)) } catch { /* ignore */ } }, [maxPerMinute])
-  useEffect(() => { try { localStorage.setItem('kiro-register-ratelimit-burst', String(burstSize)) } catch { /* ignore */ } }, [burstSize])
-  useEffect(() => { try { localStorage.setItem('kiro-register-backoff-base-sec', String(backoffBaseSec)) } catch { /* ignore */ } }, [backoffBaseSec])
-  useEffect(() => { try { localStorage.setItem('kiro-register-backoff-max-sec', String(backoffMaxSec)) } catch { /* ignore */ } }, [backoffMaxSec])
-  useEffect(() => { try { localStorage.setItem('kiro-register-autobackoff', autoBackoff ? '1' : '0') } catch { /* ignore */ } }, [autoBackoff])
-  useEffect(() => { try { localStorage.setItem('kiro-register-autopause-risk', autoPauseOnRisk ? '1' : '0') } catch { /* ignore */ } }, [autoPauseOnRisk])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-ratelimit-enabled', rateLimitEnabled ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [rateLimitEnabled])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-ratelimit-max', String(maxPerMinute))
+    } catch {
+      /* ignore */
+    }
+  }, [maxPerMinute])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-ratelimit-burst', String(burstSize))
+    } catch {
+      /* ignore */
+    }
+  }, [burstSize])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-backoff-base-sec', String(backoffBaseSec))
+    } catch {
+      /* ignore */
+    }
+  }, [backoffBaseSec])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-backoff-max-sec', String(backoffMaxSec))
+    } catch {
+      /* ignore */
+    }
+  }, [backoffMaxSec])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-autobackoff', autoBackoff ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [autoBackoff])
+  useEffect(() => {
+    try {
+      localStorage.setItem('kiro-register-autopause-risk', autoPauseOnRisk ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [autoPauseOnRisk])
 
   // 限速器实例（单例 ref）
   const rateLimiterRef = useRef<RateLimiter | null>(null)
@@ -856,7 +1185,9 @@ export function RegisterPage(): React.JSX.Element {
             if (currentTaskCenterId.current) {
               useTaskStore.getState().updateTask(currentTaskCenterId.current, { status: 'paused' })
             }
-            addLog(`[RiskControl] 风控触发，自动暂停（成功率 ${Math.round(snap.successRate * 100)}%）`)
+            addLog(
+              `[RiskControl] 风控触发，自动暂停（成功率 ${Math.round(snap.successRate * 100)}%）`
+            )
           }
           void useWebhookStore.getState().triggerEvent('risk-warning', {
             title: '风控信号触发',
@@ -876,12 +1207,44 @@ export function RegisterPage(): React.JSX.Element {
       }
     }, 1000)
     return () => clearInterval(timer)
-  }, [batchRunning])
+  }, [addLog, autoPauseOnRisk, batchRunning])
 
   // 自动保存配置到 localStorage
   useEffect(() => {
-    saveConfig({ mode, outlookData, fullName, batchCount, batchInterval, batchAutoImport, batchRetries, batchConcurrency, autoFetchProLink, proPlanType, tempMailEmail, tempMailEpin, tempMailDomain, manualParentEmail: parentEmail, manualAnonymousEmail: anonymousEmail })
-  }, [mode, outlookData, fullName, batchCount, batchInterval, batchAutoImport, batchRetries, batchConcurrency, autoFetchProLink, proPlanType, tempMailEmail, tempMailEpin, tempMailDomain, parentEmail, anonymousEmail])
+    saveConfig({
+      mode,
+      outlookData,
+      fullName,
+      batchCount,
+      batchInterval,
+      batchAutoImport,
+      batchRetries,
+      batchConcurrency,
+      autoFetchProLink,
+      proPlanType,
+      tempMailEmail,
+      tempMailEpin,
+      tempMailDomain,
+      manualParentEmail: parentEmail,
+      manualAnonymousEmail: anonymousEmail
+    })
+  }, [
+    mode,
+    outlookData,
+    fullName,
+    batchCount,
+    batchInterval,
+    batchAutoImport,
+    batchRetries,
+    batchConcurrency,
+    autoFetchProLink,
+    proPlanType,
+    tempMailEmail,
+    tempMailEpin,
+    tempMailDomain,
+    parentEmail,
+    anonymousEmail
+  ])
 
   // 匿名邮箱预览计算 — 以 anonymousEmail/parentEmail/accounts 为依赖实时冷算下一个变体
   const anonymousPreview = useMemo(() => {
@@ -902,29 +1265,44 @@ export function RegisterPage(): React.JSX.Element {
     const localLen = split[0].replace(/\./g, '').length
     // 上限估算到 5 个点，足以应付绝大多数场景（避免大二项式造成 UI 误导）
     const totalCapacity = totalVariantCount(localLen, 5)
-    return { ...result, sameRootCount, totalCapacity, localLen, error: null as null | 'empty' | 'invalid' }
+    return {
+      ...result,
+      sameRootCount,
+      totalCapacity,
+      localLen,
+      error: null as null | 'empty' | 'invalid'
+    }
   }, [anonymousEmail, parentEmail, accounts])
 
   // ============ 注册历史 ============
 
   const [history, _setHistory] = useState<HistoryItem[]>(loadHistory)
 
-  const setHistory = useCallback((updater: HistoryItem[] | ((prev: HistoryItem[]) => HistoryItem[])) => {
-    _refSetHistory?.((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater
-      saveHistory(next)
-      return next
-    })
-  }, [])
+  const setHistory = useCallback(
+    (updater: HistoryItem[] | ((prev: HistoryItem[]) => HistoryItem[])) => {
+      _refSetHistory?.((prev) => {
+        const next = typeof updater === 'function' ? updater(prev) : updater
+        saveHistory(next)
+        return next
+      })
+    },
+    []
+  )
 
-  const addHistory = useCallback((item: Omit<HistoryItem, 'id' | 'time' | 'imported'>) => {
-    setHistory((prev) => [{
-      ...item,
-      id: crypto.randomUUID(),
-      time: Date.now(),
-      imported: false
-    }, ...prev])
-  }, [setHistory])
+  const addHistory = useCallback(
+    (item: Omit<HistoryItem, 'id' | 'time' | 'imported'>) => {
+      setHistory((prev) => [
+        {
+          ...item,
+          id: crypto.randomUUID(),
+          time: Date.now(),
+          imported: false
+        },
+        ...prev
+      ])
+    },
+    [setHistory]
+  )
 
   // 注册模块级 setter refs，确保异步代码跨组件生命周期调用最新 setter
   useEffect(() => {
@@ -946,123 +1324,207 @@ export function RegisterPage(): React.JSX.Element {
     _setBatchSuccess(_batchSuccess)
     _setBatchFail(_batchFail)
     _setBatchItems([..._batchItems])
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   // 自动导入单个成功结果
-  const autoImportResult = useCallback(async (regResult: RegResult): Promise<boolean> => {
-    if (!regResult.refreshToken || !regResult.clientId || !regResult.clientSecret) return false
-    try {
-      const verifyResult = await window.api.verifyAccountCredentials({
-        refreshToken: regResult.refreshToken,
-        clientId: regResult.clientId,
-        clientSecret: regResult.clientSecret,
-        region: regResult.region || 'us-east-1',
-        authMethod: 'IdC',
-        provider: 'BuilderId'
-      })
-      const now = Date.now()
-      const defaultUsage = { current: 0, limit: 0, percentUsed: 0, lastUpdated: now }
-
-      if (verifyResult.success && verifyResult.data) {
-        const expiresAt = verifyResult.data.expiresIn ? now + verifyResult.data.expiresIn * 1000 : now + 3600000
-        const usage = verifyResult.data.usage
-          ? { ...verifyResult.data.usage, percentUsed: verifyResult.data.usage.limit > 0 ? Math.round((verifyResult.data.usage.current / verifyResult.data.usage.limit) * 100) : 0, lastUpdated: now }
-          : defaultUsage
-        addAccount({
-          email: verifyResult.data.email || regResult.email, password: regResult.password, idp: 'BuilderId', status: 'active',
-          credentials: { refreshToken: regResult.refreshToken, clientId: regResult.clientId, clientSecret: regResult.clientSecret, accessToken: verifyResult.data.accessToken || regResult.accessToken || '', csrfToken: '', region: regResult.region || 'us-east-1', authMethod: 'IdC' as const, provider: 'BuilderId' as const, expiresAt },
-          subscription: { type: (verifyResult.data.subscriptionType as 'Free' | 'Pro' | 'Pro_Plus' | 'Enterprise' | 'Teams') || 'Free', title: verifyResult.data.subscriptionTitle || 'Free Tier' },
-          usage, tags: [], lastUsedAt: now
+  const autoImportResult = useCallback(
+    async (regResult: RegResult): Promise<boolean> => {
+      if (!regResult.refreshToken || !regResult.clientId || !regResult.clientSecret) return false
+      try {
+        const verifyResult = await window.api.verifyAccountCredentials({
+          refreshToken: regResult.refreshToken,
+          clientId: regResult.clientId,
+          clientSecret: regResult.clientSecret,
+          region: regResult.region || 'us-east-1',
+          authMethod: 'IdC',
+          provider: 'BuilderId'
         })
-      } else {
-        addAccount({
-          email: regResult.email, password: regResult.password, idp: 'BuilderId', status: 'active',
-          credentials: { refreshToken: regResult.refreshToken, clientId: regResult.clientId, clientSecret: regResult.clientSecret, accessToken: regResult.accessToken || '', csrfToken: '', region: regResult.region || 'us-east-1', authMethod: 'IdC' as const, provider: 'BuilderId' as const, expiresAt: now + 3600000 },
-          subscription: { type: 'Free', title: 'Free Tier' }, usage: defaultUsage, tags: [], lastUsedAt: now
-        })
-      }
-      return true
-    } catch {
-      return false
-    }
-  }, [addAccount])
+        const now = Date.now()
+        const defaultUsage = { current: 0, limit: 0, percentUsed: 0, lastUpdated: now }
 
-  // 获取 Pro 订阅链接并写入订阅页面链接列表
-  const fetchProSubscriptionUrl = useCallback(async (regResult: RegResult, email: string): Promise<string | undefined> => {
-    const accessToken = regResult.accessToken
-    if (!accessToken) return undefined
-    const linkId = crypto.randomUUID()
-    appendSubscriptionLink({ accountId: linkId, email, status: 'loading' })
-    try {
-      addLog(`[Pro Link] ${email}: ${t('register.fetchingProLink')} (${proPlanType.replace('Q_DEVELOPER_STANDALONE_', '')})...`)
-      const result = await window.api.accountGetSubscriptionUrl(
-        accessToken,
-        proPlanType,
-        regResult.region || 'us-east-1',
-        undefined,
-        undefined,
-        'BuilderId',
-        'IdC',
-        undefined
-      )
-      if (result.success && result.url) {
-        addLog(`[Pro Link] ${email}: ${result.url}`)
-        updateSubscriptionLink(linkId, { status: 'success', url: result.url })
-        return result.url
-      }
-      const errMsg = result.error || 'Failed to get link'
-      addLog(`[Pro Link] ${email}: ${errMsg}`)
-      updateSubscriptionLink(linkId, { status: 'error', error: errMsg })
-      return undefined
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      addLog(`[Pro Link] ${email}: ${errMsg}`)
-      updateSubscriptionLink(linkId, { status: 'error', error: errMsg })
-      return undefined
-    }
-  }, [addLog, t])
-
-  // 监听注册完成 - 同时记录到历史 + 自动导入
-  const onRegComplete = useCallback(async (res: RegResult) => {
-    setResult(res)
-    setPhase('done')
-    if (res.status === 'success') {
-      addLog(`${t('register.logRegSuccess')} ${res.email}`)
-      addHistory({ email: res.email, status: 'success', password: res.password, result: res })
-      // 触发 Webhook
-      void useWebhookStore.getState().triggerEvent('register-success', {
-        title: '账号注册成功',
-        message: `新账号 ${res.email} 注册完成`,
-        level: 'success',
-        fields: { 邮箱: res.email, 模式: mode }
-      })
-      if (batchAutoImport) {
-        const ok = await autoImportResult(res)
-        if (ok) {
-          setImported(true)
-          addLog(t('register.logImported'))
-          setHistory((prev) => {
-            const idx = prev.findIndex((h) => h.email === res.email && !h.imported)
-            if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], imported: true }; return u }
-            return prev
+        if (verifyResult.success && verifyResult.data) {
+          const expiresAt = verifyResult.data.expiresIn
+            ? now + verifyResult.data.expiresIn * 1000
+            : now + 3600000
+          const usage = verifyResult.data.usage
+            ? {
+                ...verifyResult.data.usage,
+                percentUsed:
+                  verifyResult.data.usage.limit > 0
+                    ? Math.round(
+                        (verifyResult.data.usage.current / verifyResult.data.usage.limit) * 100
+                      )
+                    : 0,
+                lastUpdated: now
+              }
+            : defaultUsage
+          addAccount({
+            email: verifyResult.data.email || regResult.email,
+            password: regResult.password,
+            idp: 'BuilderId',
+            status: 'active',
+            credentials: {
+              refreshToken: regResult.refreshToken,
+              clientId: regResult.clientId,
+              clientSecret: regResult.clientSecret,
+              accessToken: verifyResult.data.accessToken || regResult.accessToken || '',
+              csrfToken: '',
+              region: regResult.region || 'us-east-1',
+              authMethod: 'IdC' as const,
+              provider: 'BuilderId' as const,
+              expiresAt
+            },
+            subscription: {
+              type:
+                (verifyResult.data.subscriptionType as
+                  | 'Free'
+                  | 'Pro'
+                  | 'Pro_Plus'
+                  | 'Enterprise'
+                  | 'Teams') || 'Free',
+              title: verifyResult.data.subscriptionTitle || 'Free Tier'
+            },
+            usage,
+            tags: [],
+            lastUsedAt: now
+          })
+        } else {
+          addAccount({
+            email: regResult.email,
+            password: regResult.password,
+            idp: 'BuilderId',
+            status: 'active',
+            credentials: {
+              refreshToken: regResult.refreshToken,
+              clientId: regResult.clientId,
+              clientSecret: regResult.clientSecret,
+              accessToken: regResult.accessToken || '',
+              csrfToken: '',
+              region: regResult.region || 'us-east-1',
+              authMethod: 'IdC' as const,
+              provider: 'BuilderId' as const,
+              expiresAt: now + 3600000
+            },
+            subscription: { type: 'Free', title: 'Free Tier' },
+            usage: defaultUsage,
+            tags: [],
+            lastUsedAt: now
           })
         }
+        return true
+      } catch {
+        return false
       }
-      if (autoFetchProLink) {
-        await fetchProSubscriptionUrl(res, res.email)
+    },
+    [addAccount]
+  )
+
+  // 获取 Pro 订阅链接并写入订阅页面链接列表
+  const fetchProSubscriptionUrl = useCallback(
+    async (regResult: RegResult, email: string): Promise<string | undefined> => {
+      const accessToken = regResult.accessToken
+      if (!accessToken) return undefined
+      const linkId = crypto.randomUUID()
+      appendSubscriptionLink({ accountId: linkId, email, status: 'loading' })
+      try {
+        addLog(
+          `[Pro Link] ${email}: ${t('register.fetchingProLink')} (${proPlanType.replace('Q_DEVELOPER_STANDALONE_', '')})...`
+        )
+        const result = await window.api.accountGetSubscriptionUrl(
+          accessToken,
+          proPlanType,
+          regResult.region || 'us-east-1',
+          undefined,
+          undefined,
+          'BuilderId',
+          'IdC',
+          undefined
+        )
+        if (result.success && result.url) {
+          addLog(`[Pro Link] ${email}: ${result.url}`)
+          updateSubscriptionLink(linkId, { status: 'success', url: result.url })
+          return result.url
+        }
+        const errMsg = result.error || 'Failed to get link'
+        addLog(`[Pro Link] ${email}: ${errMsg}`)
+        updateSubscriptionLink(linkId, { status: 'error', error: errMsg })
+        return undefined
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        addLog(`[Pro Link] ${email}: ${errMsg}`)
+        updateSubscriptionLink(linkId, { status: 'error', error: errMsg })
+        return undefined
       }
-    } else {
-      addLog(`${t('register.logRegFailed')} ${res.error}`)
-      addHistory({ email: res.email, status: res.status, error: res.error, password: res.password, result: res })
-      // 触发 Webhook
-      void useWebhookStore.getState().triggerEvent('register-failed', {
-        title: '账号注册失败',
-        message: `${res.email || '(未知邮箱)'} 注册失败`,
-        level: 'error',
-        fields: { 邮箱: res.email || '-', 错误: res.error || '-', 模式: mode }
-      })
-    }
-  }, [addLog, addHistory, t, batchAutoImport, autoImportResult, autoFetchProLink, fetchProSubscriptionUrl, mode])
+    },
+    [addLog, proPlanType, t]
+  )
+
+  // 监听注册完成 - 同时记录到历史 + 自动导入
+  const onRegComplete = useCallback(
+    async (res: RegResult) => {
+      setResult(res)
+      setPhase('done')
+      if (res.status === 'success') {
+        addLog(`${t('register.logRegSuccess')} ${res.email}`)
+        addHistory({ email: res.email, status: 'success', password: res.password, result: res })
+        // 触发 Webhook
+        void useWebhookStore.getState().triggerEvent('register-success', {
+          title: '账号注册成功',
+          message: `新账号 ${res.email} 注册完成`,
+          level: 'success',
+          fields: { 邮箱: res.email, 模式: mode }
+        })
+        if (batchAutoImport) {
+          const ok = await autoImportResult(res)
+          if (ok) {
+            setImported(true)
+            addLog(t('register.logImported'))
+            setHistory((prev) => {
+              const idx = prev.findIndex((h) => h.email === res.email && !h.imported)
+              if (idx >= 0) {
+                const u = [...prev]
+                u[idx] = { ...u[idx], imported: true }
+                return u
+              }
+              return prev
+            })
+          }
+        }
+        if (autoFetchProLink) {
+          await fetchProSubscriptionUrl(res, res.email)
+        }
+      } else {
+        addLog(`${t('register.logRegFailed')} ${res.error}`)
+        addHistory({
+          email: res.email,
+          status: res.status,
+          error: res.error,
+          password: res.password,
+          result: res
+        })
+        // 触发 Webhook
+        void useWebhookStore.getState().triggerEvent('register-failed', {
+          title: '账号注册失败',
+          message: `${res.email || '(未知邮箱)'} 注册失败`,
+          level: 'error',
+          fields: { 邮箱: res.email || '-', 错误: res.error || '-', 模式: mode }
+        })
+      }
+    },
+    [
+      addLog,
+      addHistory,
+      t,
+      batchAutoImport,
+      autoImportResult,
+      autoFetchProLink,
+      fetchProSubscriptionUrl,
+      mode,
+      setHistory,
+      setPhase,
+      setResult
+    ]
+  )
 
   // 覆盖原有的 onRegistrationComplete 监听
   useEffect(() => {
@@ -1080,7 +1542,9 @@ export function RegisterPage(): React.JSX.Element {
         const valid = arr.filter((x): x is AutoEmailSource => x === 'outlook' || x === 'tempmail')
         return valid.length > 0 ? valid : ['outlook', 'tempmail']
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return ['outlook', 'tempmail']
   })
   /** 每个源的权重（默认 1） — 加权轮询 */
@@ -1091,14 +1555,24 @@ export function RegisterPage(): React.JSX.Element {
         const parsed = JSON.parse(raw) as Record<string, number>
         return { outlook: parsed.outlook ?? 1, tempmail: parsed.tempmail ?? 1 }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return { outlook: 1, tempmail: 1 }
   })
   useEffect(() => {
-    try { localStorage.setItem('kiro-register-mixed-sources', JSON.stringify(mixedEnabledSources)) } catch { /* ignore */ }
+    try {
+      localStorage.setItem('kiro-register-mixed-sources', JSON.stringify(mixedEnabledSources))
+    } catch {
+      /* ignore */
+    }
   }, [mixedEnabledSources])
   useEffect(() => {
-    try { localStorage.setItem('kiro-register-mixed-weights', JSON.stringify(mixedWeights)) } catch { /* ignore */ }
+    try {
+      localStorage.setItem('kiro-register-mixed-weights', JSON.stringify(mixedWeights))
+    } catch {
+      /* ignore */
+    }
   }, [mixedWeights])
 
   // 加权轮询调度：维护各源的"信用"分数，每次选信用最高的，扣除后累积
@@ -1110,7 +1584,8 @@ export function RegisterPage(): React.JSX.Element {
     const candidates = mixedEnabledSources.filter((src) => {
       // 子源必须填了对应的配置
       if (src === 'outlook') return !!outlookData.trim()
-      if (src === 'tempmail') return !!(tempMailDomain.trim() && tempMailEmail.trim() && tempMailEpin.trim())
+      if (src === 'tempmail')
+        return !!(tempMailDomain.trim() && tempMailEmail.trim() && tempMailEpin.trim())
       return false
     })
     if (candidates.length === 0) return null
@@ -1138,13 +1613,14 @@ export function RegisterPage(): React.JSX.Element {
   }, [mixedEnabledSources, mixedWeights, outlookData, tempMailDomain, tempMailEmail, tempMailEpin])
 
   // 构建自动模式配置
-  const buildAutoConfig = useCallback((): Parameters<typeof window.api.registrationStartAuto>[0] => {
+  const buildAutoConfig = useCallback((): Parameters<
+    typeof window.api.registrationStartAuto
+  >[0] => {
     const config: Record<string, unknown> = {}
 
     // 混合模式：每次调用挑一个子源
-    const effectiveMode: AutoEmailSource | null = mode === 'mixed'
-      ? pickNextSource()
-      : (mode === 'manual' ? null : (mode as AutoEmailSource))
+    const effectiveMode: AutoEmailSource | null =
+      mode === 'mixed' ? pickNextSource() : mode === 'manual' ? null : (mode as AutoEmailSource)
 
     if (effectiveMode === 'tempmail') {
       config.useTempMailPlus = true
@@ -1168,76 +1644,99 @@ export function RegisterPage(): React.JSX.Element {
   const outlookPoolRef = useRef<string[]>([])
 
   // 执行单次注册（含重试）— 每次都重新 buildAutoConfig，让 mixed 模式权重正确生效
-  const runSingleWithRetry = useCallback(async (
-    itemId: string,
-    taskId: string,
-    maxRetries: number
-  ): Promise<{ success: boolean; result?: RegResult }> => {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      if (batchAbort.current) return { success: false }
+  const runSingleWithRetry = useCallback(
+    async (
+      itemId: string,
+      taskId: string,
+      maxRetries: number
+    ): Promise<{ success: boolean; result?: RegResult }> => {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (batchAbort.current) return { success: false }
 
-      if (attempt > 0) {
-        setBatchItems((prev) => prev.map((it) =>
-          it.id === itemId ? { ...it, status: 'retrying' as BatchItemStatus, retryCount: attempt } : it
-        ))
-        addLog(t('register.batchRetrying').replace('{current}', String(attempt)).replace('{max}', String(maxRetries)))
-        await new Promise((r) => setTimeout(r, 3000))
-      } else {
-        setBatchItems((prev) => prev.map((it) =>
-          it.id === itemId ? { ...it, status: 'running' as BatchItemStatus } : it
-        ))
-      }
-
-      // 每次都重新 build：混合模式下每个 task / 每次重试都独立挑源（权重正确生效）
-      const config = buildAutoConfig()
-      const enrichedConfig: Record<string, unknown> = { ...config, taskId }
-
-      // Outlook 模式：从 shuffle 后的池里取单行（不同 task 不会抢同一个邮箱）
-      // 池空时回退到完整列表（主进程 random pick，兼容兜底）
-      if (config.useOutlook && outlookPoolRef.current.length > 0) {
-        const line = outlookPoolRef.current.shift()
-        if (line) {
-          enrichedConfig.outlookData = line
-          addLog(`[Outlook] 分配邮箱: ${line.split('----')[0]}`)
-        }
-      }
-
-      // 从代理池挑一个代理（仅在启用时）；每次重试也重新挑，让失效代理自动回避
-      let pickedProxy: ReturnType<typeof pickNextProxy> = null
-      if (proxyPoolConfig.enabled && proxyPool.size > 0) {
-        pickedProxy = pickNextProxy()
-        if (pickedProxy) {
-          enrichedConfig.proxy = pickedProxy.url
-          addLog(`[Proxy] Using ${pickedProxy.protocol}://${pickedProxy.host}:${pickedProxy.port}`)
+        if (attempt > 0) {
+          setBatchItems((prev) =>
+            prev.map((it) =>
+              it.id === itemId
+                ? { ...it, status: 'retrying' as BatchItemStatus, retryCount: attempt }
+                : it
+            )
+          )
+          addLog(
+            t('register.batchRetrying')
+              .replace('{current}', String(attempt))
+              .replace('{max}', String(maxRetries))
+          )
+          await new Promise((r) => setTimeout(r, 3000))
         } else {
-          addLog('[Proxy] Pool enabled but no available proxy, falling back to direct connection')
+          setBatchItems((prev) =>
+            prev.map((it) =>
+              it.id === itemId ? { ...it, status: 'running' as BatchItemStatus } : it
+            )
+          )
+        }
+
+        // 每次都重新 build：混合模式下每个 task / 每次重试都独立挑源（权重正确生效）
+        const config = buildAutoConfig()
+        const enrichedConfig: Record<string, unknown> = { ...config, taskId }
+
+        // Outlook 模式：从 shuffle 后的池里取单行（不同 task 不会抢同一个邮箱）
+        // 池空时回退到完整列表（主进程 random pick，兼容兜底）
+        if (config.useOutlook && outlookPoolRef.current.length > 0) {
+          const line = outlookPoolRef.current.shift()
+          if (line) {
+            enrichedConfig.outlookData = line
+            addLog(`[Outlook] 分配邮箱: ${line.split('----')[0]}`)
+          }
+        }
+
+        // 从代理池挑一个代理（仅在启用时）；每次重试也重新挑，让失效代理自动回避
+        let pickedProxy: ReturnType<typeof pickNextProxy> = null
+        if (proxyPoolConfig.enabled && proxyPool.size > 0) {
+          pickedProxy = pickNextProxy()
+          if (pickedProxy) {
+            enrichedConfig.proxy = pickedProxy.url
+            addLog(
+              `[Proxy] Using ${pickedProxy.protocol}://${pickedProxy.host}:${pickedProxy.port}`
+            )
+          } else {
+            addLog('[Proxy] Pool enabled but no available proxy, falling back to direct connection')
+          }
+        }
+
+        const res = await window.api.registrationStartAuto(enrichedConfig as typeof config)
+
+        // 上报代理使用结果
+        if (pickedProxy) {
+          const ok = res.success && (res.result as RegResult | undefined)?.status === 'success'
+          const emailUsed = (res.result as RegResult | undefined)?.email
+          const errMsg = res.error || (res.result as RegResult | undefined)?.error
+          reportProxyResult(pickedProxy.id, ok, emailUsed, errMsg)
+        }
+
+        if (res.success && res.result) {
+          const regResult = res.result as RegResult
+          if (regResult.status === 'success') {
+            return { success: true, result: regResult }
+          }
+          if (attempt === maxRetries) {
+            return { success: false, result: regResult }
+          }
+        } else if (!res.success) {
+          if (attempt === maxRetries) return { success: false }
         }
       }
-
-      const res = await window.api.registrationStartAuto(enrichedConfig as typeof config)
-
-      // 上报代理使用结果
-      if (pickedProxy) {
-        const ok = res.success && (res.result as RegResult | undefined)?.status === 'success'
-        const emailUsed = (res.result as RegResult | undefined)?.email
-        const errMsg = res.error || (res.result as RegResult | undefined)?.error
-        reportProxyResult(pickedProxy.id, ok, emailUsed, errMsg)
-      }
-
-      if (res.success && res.result) {
-        const regResult = res.result as RegResult
-        if (regResult.status === 'success') {
-          return { success: true, result: regResult }
-        }
-        if (attempt === maxRetries) {
-          return { success: false, result: regResult }
-        }
-      } else if (!res.success) {
-        if (attempt === maxRetries) return { success: false }
-      }
-    }
-    return { success: false }
-  }, [addLog, t, proxyPool, proxyPoolConfig.enabled, pickNextProxy, reportProxyResult, buildAutoConfig])
+      return { success: false }
+    },
+    [
+      addLog,
+      t,
+      proxyPool,
+      proxyPoolConfig.enabled,
+      pickNextProxy,
+      reportProxyResult,
+      buildAutoConfig
+    ]
+  )
 
   // 处理单个批量注册任务完成
   const handleBatchOutcome = async (
@@ -1248,16 +1747,25 @@ export function RegisterPage(): React.JSX.Element {
       setBatchSuccess((p) => p + 1)
       // 每日配额计数（仅成功才扣减）
       if (dailyQuotaLimit > 0) incrementDailyQuota(1)
-      setBatchItems((prev) => prev.map((it) =>
-        it.id === itemId ? { ...it, status: 'success', email: outcome.result!.email } : it
-      ))
-      addHistory({ email: outcome.result.email, status: 'success', password: outcome.result.password, result: outcome.result })
+      setBatchItems((prev) =>
+        prev.map((it) =>
+          it.id === itemId ? { ...it, status: 'success', email: outcome.result!.email } : it
+        )
+      )
+      addHistory({
+        email: outcome.result.email,
+        status: 'success',
+        password: outcome.result.password,
+        result: outcome.result
+      })
 
       if (batchAutoImport) {
         const imported = await autoImportResult(outcome.result)
-        setBatchItems((prev) => prev.map((it) =>
-          it.id === itemId ? { ...it, status: imported ? 'imported' : 'import_failed' } : it
-        ))
+        setBatchItems((prev) =>
+          prev.map((it) =>
+            it.id === itemId ? { ...it, status: imported ? 'imported' : 'import_failed' } : it
+          )
+        )
         if (imported) {
           addLog(t('register.logImported'))
           setHistory((prev) => {
@@ -1278,9 +1786,11 @@ export function RegisterPage(): React.JSX.Element {
       setBatchFail((p) => p + 1)
       const errEmail = outcome.result?.email || ''
       const errMsg = outcome.result?.error || 'unknown'
-      setBatchItems((prev) => prev.map((it) =>
-        it.id === itemId ? { ...it, status: 'failed', email: errEmail, error: errMsg } : it
-      ))
+      setBatchItems((prev) =>
+        prev.map((it) =>
+          it.id === itemId ? { ...it, status: 'failed', email: errEmail, error: errMsg } : it
+        )
+      )
       if (outcome.result) {
         addHistory({ email: errEmail, status: 'failed', error: errMsg })
       }
@@ -1326,7 +1836,9 @@ export function RegisterPage(): React.JSX.Element {
       }
       const want = retryItems ? retryItems.length : batchCount
       if (want > remainingQuota) {
-        addLog(`[Quota] 本次申请 ${want} 个，今日剩余配额 ${remainingQuota}，自动缩减到 ${remainingQuota}`)
+        addLog(
+          `[Quota] 本次申请 ${want} 个，今日剩余配额 ${remainingQuota}，自动缩减到 ${remainingQuota}`
+        )
         if (!retryItems) {
           setBatchCount(remainingQuota)
         }
@@ -1341,13 +1853,15 @@ export function RegisterPage(): React.JSX.Element {
     let items: BatchItem[]
     if (retryItems && retryItems.length > 0) {
       // 仅重置传入项的状态
-      items = retryItems.map((it) => ({ ...it, status: 'pending' as BatchItemStatus, error: undefined, retryCount: 0 }))
+      items = retryItems.map((it) => ({
+        ...it,
+        status: 'pending' as BatchItemStatus,
+        error: undefined,
+        retryCount: 0
+      }))
       // 合并回完整列表，保持其它成功项可见
       const ids = new Set(items.map((i) => i.id))
-      setBatchItems((prev) => [
-        ...prev.filter((it) => !ids.has(it.id)),
-        ...items
-      ])
+      setBatchItems((prev) => [...prev.filter((it) => !ids.has(it.id)), ...items])
       // 重试模式下统计仅重置失败计数
       setBatchFail(0)
       setBatchDone((prev) => Math.max(0, prev - items.length))
@@ -1369,9 +1883,13 @@ export function RegisterPage(): React.JSX.Element {
     const totalCount = items.length
 
     // 初始化 Outlook 单行池（avoid 并发抢占）—— 仅当 outlook / mixed 启用且填了 outlookData
-    const needsOutlook = mode === 'outlook' || (mode === 'mixed' && mixedEnabledSources.includes('outlook'))
+    const needsOutlook =
+      mode === 'outlook' || (mode === 'mixed' && mixedEnabledSources.includes('outlook'))
     if (needsOutlook && outlookData.trim()) {
-      const lines = outlookData.split('\n').map((s) => s.trim()).filter((s) => s.includes('----'))
+      const lines = outlookData
+        .split('\n')
+        .map((s) => s.trim())
+        .filter((s) => s.includes('----'))
       // Fisher-Yates shuffle
       for (let i = lines.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1))
@@ -1379,7 +1897,9 @@ export function RegisterPage(): React.JSX.Element {
       }
       outlookPoolRef.current = lines
       if (lines.length < totalCount) {
-        addLog(`[Outlook] 警告：邮箱池仅 ${lines.length} 个，本批 ${totalCount} 个任务，超出部分将随机复用（可能撞号）`)
+        addLog(
+          `[Outlook] 警告：邮箱池仅 ${lines.length} 个，本批 ${totalCount} 个任务，超出部分将随机复用（可能撞号）`
+        )
       } else {
         addLog(`[Outlook] 邮箱池已就绪 (${lines.length} 个，shuffle 后分配)`)
       }
@@ -1396,7 +1916,7 @@ export function RegisterPage(): React.JSX.Element {
         burst: burstSize,
         backoffBaseMs: backoffBaseSec * 1000,
         backoffMaxMs: backoffMaxSec * 1000,
-        consecutiveFailureThreshold: autoBackoff ? 5 : 999999  // 关闭自动退避时通过大阈值禁用
+        consecutiveFailureThreshold: autoBackoff ? 5 : 999999 // 关闭自动退避时通过大阈值禁用
       }
       if (!rateLimiterRef.current) {
         rateLimiterRef.current = createRateLimiter(cfg)
@@ -1404,7 +1924,9 @@ export function RegisterPage(): React.JSX.Element {
         rateLimiterRef.current.updateConfig(cfg)
         rateLimiterRef.current.reset()
       }
-      addLog(`[RateLimit] 已启用：${maxPerMinute}/分钟 burst=${burstSize} 退避 ${backoffBaseSec}~${backoffMaxSec}s，自动退避：${autoBackoff ? '开' : '关'}`)
+      addLog(
+        `[RateLimit] 已启用：${maxPerMinute}/分钟 burst=${burstSize} 退避 ${backoffBaseSec}~${backoffMaxSec}s，自动退避：${autoBackoff ? '开' : '关'}`
+      )
     } else {
       rateLimiterRef.current = null
     }
@@ -1439,7 +1961,11 @@ export function RegisterPage(): React.JSX.Element {
 
     for (let i = 0; i < items.length; i++) {
       if (batchAbort.current) {
-        addLog(t('register.batchStopped').replace('{done}', String(launched)).replace('{total}', String(totalCount)))
+        addLog(
+          t('register.batchStopped')
+            .replace('{done}', String(launched))
+            .replace('{total}', String(totalCount))
+        )
         break
       }
 
@@ -1451,7 +1977,11 @@ export function RegisterPage(): React.JSX.Element {
 
       // 限速：等待令牌（含退避）
       if (rateLimiterRef.current) {
-        await rateLimiterRef.current.waitForSlot({ get aborted() { return batchAbort.current } })
+        await rateLimiterRef.current.waitForSlot({
+          get aborted() {
+            return batchAbort.current
+          }
+        })
         if (batchAbort.current) break
       }
 
@@ -1509,9 +2039,16 @@ export function RegisterPage(): React.JSX.Element {
     void useWebhookStore.getState().triggerEvent('batch-completed', {
       title: `批量注册${retryItems ? '重试' : ''}完成`,
       message: `共 ${totalCount} 个任务，成功 ${_batchSuccess}，失败 ${_batchFail}`,
-      level: _batchFail === 0 ? 'success' : (_batchSuccess === 0 ? 'error' : 'warn'),
+      level: _batchFail === 0 ? 'success' : _batchSuccess === 0 ? 'error' : 'warn',
       fields: {
-        模式: mode === 'outlook' ? 'Outlook' : mode === 'tempmail' ? 'TempMail.Plus' : mode === 'mixed' ? 'Mixed' : 'Manual',
+        模式:
+          mode === 'outlook'
+            ? 'Outlook'
+            : mode === 'tempmail'
+              ? 'TempMail.Plus'
+              : mode === 'mixed'
+                ? 'Mixed'
+                : 'Manual',
         并发: concurrency,
         成功: _batchSuccess,
         失败: _batchFail,
@@ -1581,28 +2118,78 @@ export function RegisterPage(): React.JSX.Element {
       const defaultUsage = { current: 0, limit: 0, percentUsed: 0, lastUpdated: now }
 
       if (verifyResult.success && verifyResult.data) {
-        const expiresAt = verifyResult.data.expiresIn ? now + verifyResult.data.expiresIn * 1000 : now + 3600000
+        const expiresAt = verifyResult.data.expiresIn
+          ? now + verifyResult.data.expiresIn * 1000
+          : now + 3600000
         const usage = verifyResult.data.usage
-          ? { ...verifyResult.data.usage, percentUsed: verifyResult.data.usage.limit > 0 ? Math.round((verifyResult.data.usage.current / verifyResult.data.usage.limit) * 100) : 0, lastUpdated: now }
+          ? {
+              ...verifyResult.data.usage,
+              percentUsed:
+                verifyResult.data.usage.limit > 0
+                  ? Math.round(
+                      (verifyResult.data.usage.current / verifyResult.data.usage.limit) * 100
+                    )
+                  : 0,
+              lastUpdated: now
+            }
           : defaultUsage
 
         addAccount({
           email: verifyResult.data.email || r.email,
-          idp: 'BuilderId', status: 'active',
-          credentials: { refreshToken: r.refreshToken!, clientId: r.clientId!, clientSecret: r.clientSecret!, accessToken: verifyResult.data.accessToken || r.accessToken || '', csrfToken: '', region: r.region || 'us-east-1', authMethod: 'IdC' as const, provider: 'BuilderId' as const, expiresAt },
-          subscription: { type: (verifyResult.data.subscriptionType as 'Free' | 'Pro' | 'Pro_Plus' | 'Enterprise' | 'Teams') || 'Free', title: verifyResult.data.subscriptionTitle || 'Free Tier' },
-          usage, tags: [], lastUsedAt: now
+          idp: 'BuilderId',
+          status: 'active',
+          credentials: {
+            refreshToken: r.refreshToken!,
+            clientId: r.clientId!,
+            clientSecret: r.clientSecret!,
+            accessToken: verifyResult.data.accessToken || r.accessToken || '',
+            csrfToken: '',
+            region: r.region || 'us-east-1',
+            authMethod: 'IdC' as const,
+            provider: 'BuilderId' as const,
+            expiresAt
+          },
+          subscription: {
+            type:
+              (verifyResult.data.subscriptionType as
+                | 'Free'
+                | 'Pro'
+                | 'Pro_Plus'
+                | 'Enterprise'
+                | 'Teams') || 'Free',
+            title: verifyResult.data.subscriptionTitle || 'Free Tier'
+          },
+          usage,
+          tags: [],
+          lastUsedAt: now
         })
       } else {
         addAccount({
-          email: r.email, idp: 'BuilderId', status: 'active',
-          credentials: { refreshToken: r.refreshToken!, clientId: r.clientId!, clientSecret: r.clientSecret!, accessToken: r.accessToken || '', csrfToken: '', region: r.region || 'us-east-1', authMethod: 'IdC' as const, provider: 'BuilderId' as const, expiresAt: now + 3600000 },
-          subscription: { type: 'Free', title: 'Free Tier' }, usage: defaultUsage, tags: [], lastUsedAt: now
+          email: r.email,
+          idp: 'BuilderId',
+          status: 'active',
+          credentials: {
+            refreshToken: r.refreshToken!,
+            clientId: r.clientId!,
+            clientSecret: r.clientSecret!,
+            accessToken: r.accessToken || '',
+            csrfToken: '',
+            region: r.region || 'us-east-1',
+            authMethod: 'IdC' as const,
+            provider: 'BuilderId' as const,
+            expiresAt: now + 3600000
+          },
+          subscription: { type: 'Free', title: 'Free Tier' },
+          usage: defaultUsage,
+          tags: [],
+          lastUsedAt: now
         })
       }
 
-      setHistory((prev) => prev.map((h) => h.id === item.id ? { ...h, imported: true } : h))
-    } catch { /* ignore */ }
+      setHistory((prev) => prev.map((h) => (h.id === item.id ? { ...h, imported: true } : h)))
+    } catch {
+      /* ignore */
+    }
   }
 
   return (
@@ -1617,7 +2204,11 @@ export function RegisterPage(): React.JSX.Element {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-primary">{t('register.title')}</h1>
-            <p className="text-sm text-muted-foreground">{isEn ? 'Register new Kiro accounts automatically or manually' : '自动或手动注册新的 Kiro 账号'}</p>
+            <p className="text-sm text-muted-foreground">
+              {isEn
+                ? 'Register new Kiro accounts automatically or manually'
+                : '自动或手动注册新的 Kiro 账号'}
+            </p>
           </div>
         </div>
       </div>
@@ -1632,12 +2223,14 @@ export function RegisterPage(): React.JSX.Element {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
-            {([
-              ['manual', t('register.manual')],
-              ['outlook', 'Outlook'],
-              ['tempmail', t('register.tempmail')],
-              ['mixed', isEn ? 'Mixed' : '混合']
-            ] as [RegMode, string][]).map(([m, label]) => (
+            {(
+              [
+                ['manual', t('register.manual')],
+                ['outlook', 'Outlook'],
+                ['tempmail', t('register.tempmail')],
+                ['mixed', isEn ? 'Mixed' : '混合']
+              ] as [RegMode, string][]
+            ).map(([m, label]) => (
               <button
                 key={m}
                 onClick={() => setMode(m)}
@@ -1654,7 +2247,6 @@ export function RegisterPage(): React.JSX.Element {
             ))}
           </div>
 
-
           {/* 自动导入开关 */}
           <div className="flex items-center gap-3">
             <Switch
@@ -1665,7 +2257,9 @@ export function RegisterPage(): React.JSX.Element {
             <div className="flex items-center gap-2">
               <Download className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm">{t('register.batchAutoImport')}</span>
-              <span className="text-xs text-muted-foreground">— {t('register.batchAutoImportDesc')}</span>
+              <span className="text-xs text-muted-foreground">
+                — {t('register.batchAutoImportDesc')}
+              </span>
             </div>
           </div>
 
@@ -1680,7 +2274,9 @@ export function RegisterPage(): React.JSX.Element {
               <div className="flex items-center gap-2">
                 <Link2 className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm">{t('register.autoFetchProLink')}</span>
-                <span className="text-xs text-muted-foreground">— {t('register.autoFetchProLinkDesc')}</span>
+                <span className="text-xs text-muted-foreground">
+                  — {t('register.autoFetchProLinkDesc')}
+                </span>
               </div>
             </div>
 
@@ -1688,11 +2284,23 @@ export function RegisterPage(): React.JSX.Element {
             {autoFetchProLink && (
               <div className="ml-11 flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">{isEn ? 'Plan:' : '计划:'}</span>
-                {([
-                  { value: 'Q_DEVELOPER_STANDALONE_PRO' as ProPlanType, label: 'Pro', color: 'bg-blue-500' },
-                  { value: 'Q_DEVELOPER_STANDALONE_PRO_PLUS' as ProPlanType, label: 'Pro+', color: 'bg-purple-500' },
-                  { value: 'Q_DEVELOPER_STANDALONE_POWER' as ProPlanType, label: 'Power', color: 'bg-amber-500' }
-                ]).map(opt => (
+                {[
+                  {
+                    value: 'Q_DEVELOPER_STANDALONE_PRO' as ProPlanType,
+                    label: 'Pro',
+                    color: 'bg-blue-500'
+                  },
+                  {
+                    value: 'Q_DEVELOPER_STANDALONE_PRO_PLUS' as ProPlanType,
+                    label: 'Pro+',
+                    color: 'bg-purple-500'
+                  },
+                  {
+                    value: 'Q_DEVELOPER_STANDALONE_POWER' as ProPlanType,
+                    label: 'Power',
+                    color: 'bg-amber-500'
+                  }
+                ].map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
@@ -1704,7 +2312,9 @@ export function RegisterPage(): React.JSX.Element {
                         : 'bg-background border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
-                    {proPlanType === opt.value && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    {proPlanType === opt.value && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                    )}
                     {opt.label}
                   </button>
                 ))}
@@ -1716,9 +2326,12 @@ export function RegisterPage(): React.JSX.Element {
           </div>
 
           {/* Outlook 配置（独立模式 或 混合模式启用了 outlook 时显示） */}
-          {(mode === 'outlook' || (mode === 'mixed' && mixedEnabledSources.includes('outlook'))) && (
+          {(mode === 'outlook' ||
+            (mode === 'mixed' && mixedEnabledSources.includes('outlook'))) && (
             <div className="p-4 bg-muted/30 rounded-lg border border-dashed space-y-1.5">
-              <Label>{t('register.outlookAccounts')} ({t('register.outlookFormat')})</Label>
+              <Label>
+                {t('register.outlookAccounts')} ({t('register.outlookFormat')})
+              </Label>
               <textarea
                 value={outlookData}
                 onChange={(e) => setOutlookData(e.target.value)}
@@ -1733,13 +2346,17 @@ export function RegisterPage(): React.JSX.Element {
           {/* 混合模式配置：勾选要参与轮询的子源 + 权重 */}
           {mode === 'mixed' && (
             <div className="p-4 bg-muted/30 rounded-lg border border-dashed space-y-3">
-              <Label>{isEn ? 'Enabled email sources (Weighted Round-Robin)' : '启用的邮箱源（加权轮询）'}</Label>
+              <Label>
+                {isEn ? 'Enabled email sources (Weighted Round-Robin)' : '启用的邮箱源（加权轮询）'}
+              </Label>
               <div className="space-y-2">
                 {(['outlook', 'tempmail'] as AutoEmailSource[]).map((src) => {
                   const enabled = mixedEnabledSources.includes(src)
                   const label = src === 'outlook' ? 'Outlook' : 'TempMail.Plus'
-                  const configured = src === 'outlook' ? !!outlookData.trim()
-                    : !!(tempMailDomain.trim() && tempMailEmail.trim() && tempMailEpin.trim())
+                  const configured =
+                    src === 'outlook'
+                      ? !!outlookData.trim()
+                      : !!(tempMailDomain.trim() && tempMailEmail.trim() && tempMailEpin.trim())
                   return (
                     <div key={src} className="flex items-center gap-2">
                       <button
@@ -1758,18 +2375,23 @@ export function RegisterPage(): React.JSX.Element {
                         )}
                         title={!configured ? '该源尚未配置，会被跳过' : ''}
                       >
-                        {enabled
-                          ? <CheckCircle2 className="h-4 w-4" />
-                          : <Square className="h-4 w-4" />
-                        }
+                        {enabled ? (
+                          <CheckCircle2 className="h-4 w-4" />
+                        ) : (
+                          <Square className="h-4 w-4" />
+                        )}
                         {label}
-                        {!configured && <span className="text-[10px] text-amber-500 ml-auto">未配置</span>}
+                        {!configured && (
+                          <span className="text-[10px] text-amber-500 ml-auto">未配置</span>
+                        )}
                       </button>
                       {enabled && configured && (
                         <div className="flex items-center gap-1 text-xs">
                           <span className="text-muted-foreground">权重:</span>
                           <Input
-                            type="number" min={0} max={100}
+                            type="number"
+                            min={0}
+                            max={100}
                             value={mixedWeights[src] || 0}
                             onChange={(e) => {
                               const v = parseInt(e.target.value, 10)
@@ -1789,8 +2411,7 @@ export function RegisterPage(): React.JSX.Element {
               <p className="text-xs text-muted-foreground">
                 {isEn
                   ? 'Smooth Weighted Round-Robin: e.g. moemail=4 + tempmail=1 means 80% / 20%. Set 0 to disable.'
-                  : '平滑加权轮询：例如 moemail=4 + tempmail=1 表示 80% / 20%。权重为 0 等于不参与。'
-                }
+                  : '平滑加权轮询：例如 moemail=4 + tempmail=1 表示 80% / 20%。权重为 0 等于不参与。'}
               </p>
               {mixedEnabledSources.length === 0 && (
                 <p className="text-xs text-amber-500">
@@ -1801,7 +2422,8 @@ export function RegisterPage(): React.JSX.Element {
           )}
 
           {/* TempMail.Plus 配置（独立模式 或 混合模式启用了 tempmail 时显示） */}
-          {(mode === 'tempmail' || (mode === 'mixed' && mixedEnabledSources.includes('tempmail'))) && (
+          {(mode === 'tempmail' ||
+            (mode === 'mixed' && mixedEnabledSources.includes('tempmail'))) && (
             <div className="p-4 bg-muted/30 rounded-lg border border-dashed space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
@@ -1850,7 +2472,9 @@ export function RegisterPage(): React.JSX.Element {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="parentEmail" className="text-xs">{t('register.parentEmailLabel')}</Label>
+                <Label htmlFor="parentEmail" className="text-xs">
+                  {t('register.parentEmailLabel')}
+                </Label>
                 <Input
                   id="parentEmail"
                   type="email"
@@ -1860,10 +2484,14 @@ export function RegisterPage(): React.JSX.Element {
                   autoComplete="off"
                   spellCheck={false}
                 />
-                <p className="text-[11px] text-muted-foreground leading-snug">{t('register.parentEmailHint')}</p>
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  {t('register.parentEmailHint')}
+                </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="fullNameIdle" className="text-xs">{t('register.fullNameRandom')}</Label>
+                <Label htmlFor="fullNameIdle" className="text-xs">
+                  {t('register.fullNameRandom')}
+                </Label>
                 <Input
                   id="fullNameIdle"
                   value={fullName}
@@ -1880,11 +2508,16 @@ export function RegisterPage(): React.JSX.Element {
                 onCheckedChange={setAnonymousEmail}
               />
               <div className="flex-1 space-y-0.5">
-                <Label htmlFor="anonymousEmail" className="cursor-pointer text-sm flex items-center gap-1.5">
+                <Label
+                  htmlFor="anonymousEmail"
+                  className="cursor-pointer text-sm flex items-center gap-1.5"
+                >
                   <Shuffle className="h-3.5 w-3.5 text-primary" />
                   {t('register.anonymousEmailLabel')}
                 </Label>
-                <p className="text-[11px] text-muted-foreground leading-snug">{t('register.anonymousEmailHint')}</p>
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  {t('register.anonymousEmailHint')}
+                </p>
               </div>
             </div>
 
@@ -1906,14 +2539,25 @@ export function RegisterPage(): React.JSX.Element {
                 {anonymousPreview && !anonymousPreview.error && anonymousPreview.variant && (
                   <div className="bg-primary/[0.06] border border-primary/20 rounded-md p-2.5 space-y-1.5">
                     <div className="flex items-center justify-between flex-wrap gap-2">
-                      <span className="text-muted-foreground flex items-center gap-1"><Shuffle className="h-3 w-3" /> {t('register.nextVariant')}:</span>
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        <Shuffle className="h-3 w-3" /> {t('register.nextVariant')}:
+                      </span>
                       <code className="bg-background px-2 py-0.5 rounded font-mono text-foreground border">
                         {anonymousPreview.variant}
                       </code>
                     </div>
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground gap-2">
-                      <span>{t('register.dotCount')}: <strong className="text-foreground">{anonymousPreview.dotCount}</strong></span>
-                      <span>{t('register.sameRoot')}: <strong className="text-foreground">{anonymousPreview.sameRootCount}</strong> / ~{anonymousPreview.totalCapacity}</span>
+                      <span>
+                        {t('register.dotCount')}:{' '}
+                        <strong className="text-foreground">{anonymousPreview.dotCount}</strong>
+                      </span>
+                      <span>
+                        {t('register.sameRoot')}:{' '}
+                        <strong className="text-foreground">
+                          {anonymousPreview.sameRootCount}
+                        </strong>{' '}
+                        / ~{anonymousPreview.totalCapacity}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -1944,10 +2588,12 @@ export function RegisterPage(): React.JSX.Element {
                   <div
                     className={cn(
                       'flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold transition-all flex-shrink-0',
-                      isDone && (isExtra
-                        ? 'bg-cyan-500 text-white shadow-sm shadow-cyan-500/30'
-                        : 'bg-green-500 text-white shadow-sm shadow-green-500/30'),
-                      isCurrent && 'bg-primary text-primary-foreground animate-pulse shadow-sm shadow-primary/30',
+                      isDone &&
+                        (isExtra
+                          ? 'bg-cyan-500 text-white shadow-sm shadow-cyan-500/30'
+                          : 'bg-green-500 text-white shadow-sm shadow-green-500/30'),
+                      isCurrent &&
+                        'bg-primary text-primary-foreground animate-pulse shadow-sm shadow-primary/30',
                       !isDone && !isCurrent && 'bg-muted text-muted-foreground'
                     )}
                   >
@@ -1956,7 +2602,7 @@ export function RegisterPage(): React.JSX.Element {
                   <span
                     className={cn(
                       'ml-1.5 text-xs font-medium whitespace-nowrap',
-                      (isDone || isCurrent) ? 'text-foreground' : 'text-muted-foreground'
+                      isDone || isCurrent ? 'text-foreground' : 'text-muted-foreground'
                     )}
                   >
                     {step}
@@ -1965,9 +2611,7 @@ export function RegisterPage(): React.JSX.Element {
                     <div
                       className={cn(
                         'flex-1 h-0.5 mx-2 transition-colors',
-                        isDone
-                          ? (isExtra ? 'bg-cyan-500' : 'bg-green-500')
-                          : 'bg-muted'
+                        isDone ? (isExtra ? 'bg-cyan-500' : 'bg-green-500') : 'bg-muted'
                       )}
                     />
                   )}
@@ -2039,7 +2683,8 @@ export function RegisterPage(): React.JSX.Element {
                 onClick={mode === 'manual' ? startManual : startAuto}
                 disabled={
                   (mode === 'outlook' && !outlookData.trim()) ||
-                  (mode === 'tempmail' && (!tempMailDomain.trim() || !tempMailEmail.trim() || !tempMailEpin.trim()))
+                  (mode === 'tempmail' &&
+                    (!tempMailDomain.trim() || !tempMailEmail.trim() || !tempMailEpin.trim()))
                 }
               >
                 <Play className="h-4 w-4 mr-2" />
@@ -2093,9 +2738,16 @@ export function RegisterPage(): React.JSX.Element {
               {showTemplatesMenu && (
                 <div className="absolute right-0 top-full mt-2 z-50 min-w-[280px] max-h-[400px] overflow-y-auto bg-popover border rounded-lg shadow-lg p-2">
                   <div className="flex items-center justify-between mb-2 px-2">
-                    <span className="text-xs font-medium uppercase text-muted-foreground">策略模板</span>
+                    <span className="text-xs font-medium uppercase text-muted-foreground">
+                      策略模板
+                    </span>
                     <div className="flex items-center gap-1">
-                      <Button size="sm" variant="ghost" onClick={saveCurrentAsTemplate} className="h-7 text-xs">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={saveCurrentAsTemplate}
+                        className="h-7 text-xs"
+                      >
                         <Download className="h-3 w-3 mr-1" />
                         保存当前
                       </Button>
@@ -2103,7 +2755,9 @@ export function RegisterPage(): React.JSX.Element {
                       <button
                         type="button"
                         onClick={() => {
-                          const blob = new Blob([JSON.stringify(templates, null, 2)], { type: 'application/json' })
+                          const blob = new Blob([JSON.stringify(templates, null, 2)], {
+                            type: 'application/json'
+                          })
                           const url = URL.createObjectURL(blob)
                           const a = document.createElement('a')
                           a.href = url
@@ -2116,7 +2770,10 @@ export function RegisterPage(): React.JSX.Element {
                       >
                         <Download className="h-3 w-3" />
                       </button>
-                      <label className="p-1 rounded hover:bg-muted text-muted-foreground cursor-pointer" title="导入模板">
+                      <label
+                        className="p-1 rounded hover:bg-muted text-muted-foreground cursor-pointer"
+                        title="导入模板"
+                      >
                         <input
                           type="file"
                           accept="application/json,.json"
@@ -2167,7 +2824,8 @@ export function RegisterPage(): React.JSX.Element {
                         >
                           <div className="text-sm truncate">{tpl.name}</div>
                           <div className="text-[10px] text-muted-foreground">
-                            {tpl.config.mode} · 批量 {tpl.config.batchCount} · 并发 {tpl.config.batchConcurrency}
+                            {tpl.config.mode} · 批量 {tpl.config.batchCount} · 并发{' '}
+                            {tpl.config.batchConcurrency}
                           </div>
                         </button>
                         <button
@@ -2190,10 +2848,17 @@ export function RegisterPage(): React.JSX.Element {
               <div className="space-y-1">
                 <Label className="text-xs">{t('register.batchCount')}</Label>
                 <Input
-                  type="number" min={1} max={100}
+                  type="number"
+                  min={1}
+                  max={100}
                   value={batchCount}
-                  onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 1) setBatchCount(v) }}
-                  onBlur={() => { if (batchCount < 1) setBatchCount(1) }}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value)
+                    if (!isNaN(v) && v >= 1) setBatchCount(v)
+                  }}
+                  onBlur={() => {
+                    if (batchCount < 1) setBatchCount(1)
+                  }}
                   disabled={batchRunning}
                   className="w-24"
                 />
@@ -2201,9 +2866,14 @@ export function RegisterPage(): React.JSX.Element {
               <div className="space-y-1">
                 <Label className="text-xs">{t('register.batchInterval')}</Label>
                 <Input
-                  type="number" min={0} max={300}
+                  type="number"
+                  min={0}
+                  max={300}
                   value={batchInterval}
-                  onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 0) setBatchInterval(v) }}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value)
+                    if (!isNaN(v) && v >= 0) setBatchInterval(v)
+                  }}
                   disabled={batchRunning}
                   className="w-24"
                 />
@@ -2211,9 +2881,14 @@ export function RegisterPage(): React.JSX.Element {
               <div className="space-y-1">
                 <Label className="text-xs">{t('register.batchRetries')}</Label>
                 <Input
-                  type="number" min={0} max={10}
+                  type="number"
+                  min={0}
+                  max={10}
                   value={batchRetries}
-                  onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 0) setBatchRetries(v) }}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value)
+                    if (!isNaN(v) && v >= 0) setBatchRetries(v)
+                  }}
                   disabled={batchRunning}
                   className="w-24"
                 />
@@ -2221,10 +2896,17 @@ export function RegisterPage(): React.JSX.Element {
               <div className="space-y-1">
                 <Label className="text-xs">{t('register.batchConcurrency')}</Label>
                 <Input
-                  type="number" min={1} max={100}
+                  type="number"
+                  min={1}
+                  max={100}
                   value={batchConcurrency}
-                  onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 1) setBatchConcurrency(v) }}
-                  onBlur={() => { if (batchConcurrency < 1) setBatchConcurrency(1) }}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value)
+                    if (!isNaN(v) && v >= 1) setBatchConcurrency(v)
+                  }}
+                  onBlur={() => {
+                    if (batchConcurrency < 1) setBatchConcurrency(1)
+                  }}
                   disabled={batchRunning}
                   className="w-24"
                 />
@@ -2235,15 +2917,40 @@ export function RegisterPage(): React.JSX.Element {
                 disabled={
                   (!batchRunning && isRunning) ||
                   (mode === 'outlook' && !outlookData.trim()) ||
-                  (mode === 'tempmail' && (!tempMailDomain.trim() || !tempMailEmail.trim() || !tempMailEpin.trim())) ||
+                  (mode === 'tempmail' &&
+                    (!tempMailDomain.trim() || !tempMailEmail.trim() || !tempMailEpin.trim())) ||
                   (mode === 'mixed' && pickNextSource() == null)
                 }
               >
-                {batchRunning ? <><Square className="h-4 w-4 mr-2" />{t('register.batchStop')}</> : <><Play className="h-4 w-4 mr-2" />{t('register.batchStart')}</>}
+                {batchRunning ? (
+                  <>
+                    <Square className="h-4 w-4 mr-2" />
+                    {t('register.batchStop')}
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 mr-2" />
+                    {t('register.batchStart')}
+                  </>
+                )}
               </Button>
               {batchRunning && (
-                <Button variant="outline" onClick={togglePauseBatch} title={isPaused ? '恢复' : '暂停'}>
-                  {isPaused ? <><Play className="h-4 w-4 mr-2" />恢复</> : <><Pause className="h-4 w-4 mr-2" />暂停</>}
+                <Button
+                  variant="outline"
+                  onClick={togglePauseBatch}
+                  title={isPaused ? '恢复' : '暂停'}
+                >
+                  {isPaused ? (
+                    <>
+                      <Play className="h-4 w-4 mr-2" />
+                      恢复
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="h-4 w-4 mr-2" />
+                      暂停
+                    </>
+                  )}
                 </Button>
               )}
             </div>
@@ -2251,7 +2958,11 @@ export function RegisterPage(): React.JSX.Element {
             {/* 定时任务 + 每日配额 */}
             <div className="flex items-center gap-4 flex-wrap p-3 rounded-lg bg-muted/30 border border-dashed">
               <div className="flex items-center gap-2">
-                <Switch checked={scheduleEnabled} onCheckedChange={setScheduleEnabled} disabled={batchRunning} />
+                <Switch
+                  checked={scheduleEnabled}
+                  onCheckedChange={setScheduleEnabled}
+                  disabled={batchRunning}
+                />
                 <Label className="text-sm cursor-pointer flex items-center gap-1.5">
                   <CalendarClock className="h-4 w-4 text-primary" />
                   定时启动
@@ -2291,7 +3002,9 @@ export function RegisterPage(): React.JSX.Element {
                     })}
                     <button
                       type="button"
-                      onClick={() => setScheduleWeekMask(scheduleWeekMask === 127 ? 0b0111110 : 127)}
+                      onClick={() =>
+                        setScheduleWeekMask(scheduleWeekMask === 127 ? 0b0111110 : 127)
+                      }
                       disabled={batchRunning}
                       className="text-[10px] text-primary hover:underline ml-1"
                       title="切换：全选 / 仅工作日"
@@ -2306,9 +3019,14 @@ export function RegisterPage(): React.JSX.Element {
                 <Timer className="h-4 w-4 text-primary" />
                 <span className="text-muted-foreground">每日配额:</span>
                 <Input
-                  type="number" min={0} max={9999}
+                  type="number"
+                  min={0}
+                  max={9999}
                   value={dailyQuotaLimit}
-                  onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) setDailyQuotaLimit(v) }}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10)
+                    if (!isNaN(v) && v >= 0) setDailyQuotaLimit(v)
+                  }}
                   disabled={batchRunning}
                   className="h-8 w-20 text-xs text-center"
                 />
@@ -2333,7 +3051,11 @@ export function RegisterPage(): React.JSX.Element {
                       onClick={() => {
                         if (confirm(`重置今日已用配额（当前 ${dailyQuotaUsed}）？`)) {
                           setDailyQuotaUsedState(0)
-                          try { localStorage.setItem(dailyQuotaKey, '0') } catch { /* ignore */ }
+                          try {
+                            localStorage.setItem(dailyQuotaKey, '0')
+                          } catch {
+                            /* ignore */
+                          }
                           addLog(`[Quota] 已重置今日配额计数`)
                         }
                       }}
@@ -2353,7 +3075,11 @@ export function RegisterPage(): React.JSX.Element {
             {/* 限速 + 退避配置 */}
             <div className="flex items-center gap-4 flex-wrap p-3 rounded-lg bg-muted/30 border border-dashed">
               <div className="flex items-center gap-2">
-                <Switch checked={rateLimitEnabled} onCheckedChange={setRateLimitEnabled} disabled={batchRunning} />
+                <Switch
+                  checked={rateLimitEnabled}
+                  onCheckedChange={setRateLimitEnabled}
+                  disabled={batchRunning}
+                />
                 <Label className="text-sm cursor-pointer flex items-center gap-1.5">
                   <Gauge className="h-4 w-4 text-primary" />
                   限速
@@ -2364,22 +3090,33 @@ export function RegisterPage(): React.JSX.Element {
                   <div className="flex items-center gap-1.5 text-xs">
                     <span className="text-muted-foreground">最大启动速率:</span>
                     <Input
-                      type="number" min={1} max={300}
+                      type="number"
+                      min={1}
+                      max={300}
                       value={maxPerMinute}
-                      onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 1) setMaxPerMinute(v) }}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10)
+                        if (!isNaN(v) && v >= 1) setMaxPerMinute(v)
+                      }}
                       disabled={batchRunning}
                       className="w-20 h-8 text-xs text-center"
                     />
                     <span className="text-muted-foreground">/ 分钟</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Switch checked={autoBackoff} onCheckedChange={setAutoBackoff} disabled={batchRunning} />
-                    <Label className="text-xs cursor-pointer">
-                      连续失败自动退避（指数）
-                    </Label>
+                    <Switch
+                      checked={autoBackoff}
+                      onCheckedChange={setAutoBackoff}
+                      disabled={batchRunning}
+                    />
+                    <Label className="text-xs cursor-pointer">连续失败自动退避（指数）</Label>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Switch checked={autoPauseOnRisk} onCheckedChange={setAutoPauseOnRisk} disabled={batchRunning} />
+                    <Switch
+                      checked={autoPauseOnRisk}
+                      onCheckedChange={setAutoPauseOnRisk}
+                      disabled={batchRunning}
+                    />
                     <Label className="text-xs cursor-pointer flex items-center gap-1">
                       <ShieldAlert className="h-3 w-3 text-amber-500" />
                       风控触发自动暂停
@@ -2391,9 +3128,14 @@ export function RegisterPage(): React.JSX.Element {
                     <div className="flex items-center gap-1">
                       <span className="text-muted-foreground">突发上限</span>
                       <Input
-                        type="number" min={1} max={100}
+                        type="number"
+                        min={1}
+                        max={100}
                         value={burstSize}
-                        onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 1) setBurstSize(v) }}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10)
+                          if (!isNaN(v) && v >= 1) setBurstSize(v)
+                        }}
                         disabled={batchRunning}
                         className="w-16 h-7 text-xs text-center"
                       />
@@ -2401,9 +3143,14 @@ export function RegisterPage(): React.JSX.Element {
                     <div className="flex items-center gap-1">
                       <span className="text-muted-foreground">退避起始</span>
                       <Input
-                        type="number" min={1} max={300}
+                        type="number"
+                        min={1}
+                        max={300}
                         value={backoffBaseSec}
-                        onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 1) setBackoffBaseSec(v) }}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10)
+                          if (!isNaN(v) && v >= 1) setBackoffBaseSec(v)
+                        }}
                         disabled={batchRunning}
                         className="w-16 h-7 text-xs text-center"
                       />
@@ -2412,9 +3159,14 @@ export function RegisterPage(): React.JSX.Element {
                     <div className="flex items-center gap-1">
                       <span className="text-muted-foreground">退避上限</span>
                       <Input
-                        type="number" min={1} max={3600}
+                        type="number"
+                        min={1}
+                        max={3600}
                         value={backoffMaxSec}
-                        onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 1) setBackoffMaxSec(v) }}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10)
+                          if (!isNaN(v) && v >= 1) setBackoffMaxSec(v)
+                        }}
                         disabled={batchRunning}
                         className="w-20 h-7 text-xs text-center"
                       />
@@ -2432,14 +3184,16 @@ export function RegisterPage(): React.JSX.Element {
 
             {/* 运行中：实时速率 + 风控信号 */}
             {batchRunning && rateSnapshot && (
-              <div className={cn(
-                'p-3 rounded-lg border space-y-2 transition-colors',
-                rateSnapshot.riskWarning
-                  ? 'bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800'
-                  : (rateSnapshot.backoffRemainingMs > 0
-                    ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800'
-                    : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800')
-              )}>
+              <div
+                className={cn(
+                  'p-3 rounded-lg border space-y-2 transition-colors',
+                  rateSnapshot.riskWarning
+                    ? 'bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800'
+                    : rateSnapshot.backoffRemainingMs > 0
+                      ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800'
+                      : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800'
+                )}
+              >
                 <div className="flex items-center gap-2">
                   {rateSnapshot.riskWarning ? (
                     <>
@@ -2458,22 +3212,33 @@ export function RegisterPage(): React.JSX.Element {
                   ) : (
                     <>
                       <Activity className="h-4 w-4 text-blue-500" />
-                      <span className="text-sm font-medium text-blue-600 dark:text-blue-400">运行中</span>
+                      <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                        运行中
+                      </span>
                     </>
                   )}
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                   <div className="flex items-center gap-1.5">
                     <span className="text-muted-foreground">吞吐:</span>
-                    <span className="font-mono tabular-nums">{rateSnapshot.throughputPerMinute}/min</span>
+                    <span className="font-mono tabular-nums">
+                      {rateSnapshot.throughputPerMinute}/min
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-muted-foreground">成功率:</span>
-                    <span className={cn(
-                      'font-mono tabular-nums font-medium',
-                      rateSnapshot.successRate >= 0.8 ? 'text-green-600' :
-                      rateSnapshot.successRate >= 0.5 ? 'text-amber-600' : 'text-red-600'
-                    )}>{Math.round(rateSnapshot.successRate * 100)}%</span>
+                    <span
+                      className={cn(
+                        'font-mono tabular-nums font-medium',
+                        rateSnapshot.successRate >= 0.8
+                          ? 'text-green-600'
+                          : rateSnapshot.successRate >= 0.5
+                            ? 'text-amber-600'
+                            : 'text-red-600'
+                      )}
+                    >
+                      {Math.round(rateSnapshot.successRate * 100)}%
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-muted-foreground">窗口:</span>
@@ -2485,99 +3250,167 @@ export function RegisterPage(): React.JSX.Element {
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-muted-foreground">连续失败:</span>
-                    <span className={cn(
-                      'font-mono tabular-nums',
-                      rateSnapshot.consecutiveFailures >= 3 ? 'text-red-600 font-medium' : ''
-                    )}>{rateSnapshot.consecutiveFailures}</span>
+                    <span
+                      className={cn(
+                        'font-mono tabular-nums',
+                        rateSnapshot.consecutiveFailures >= 3 ? 'text-red-600 font-medium' : ''
+                      )}
+                    >
+                      {rateSnapshot.consecutiveFailures}
+                    </span>
                   </div>
                 </div>
               </div>
             )}
 
             {/* 失败重试面板（仅有失败时显示） */}
-            {!batchRunning && batchFail > 0 && batchItems.some(it => it.status === 'failed' || it.status === 'import_failed') && (() => {
-              // 按错误类型分桶
-              const buckets: Record<string, number> = { network: 0, otp_timeout: 0, email_used: 0, rate_limit: 0, risk_control: 0, auth: 0, unknown: 0 }
-              for (const it of batchItems) {
-                if (it.status !== 'failed' && it.status !== 'import_failed') continue
-                const k = classifyError(it.error)
-                buckets[k] = (buckets[k] || 0) + 1
-              }
-              const labels: Record<string, string> = {
-                network: '网络错误',
-                otp_timeout: '验证码超时',
-                email_used: '邮箱已占用',
-                rate_limit: '限流',
-                risk_control: 'AWS 风控',
-                auth: '认证错误',
-                unknown: '其它/未知'
-              }
-              return (
-                <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg space-y-2">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                    <span className="text-sm font-medium">{batchFail} 个任务失败</span>
-                    <Button size="sm" variant="default" className="ml-auto" onClick={() => retryFailed('all')}>
-                      <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                      全部重试
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {Object.entries(buckets).filter(([, c]) => c > 0).map(([k, c]) => (
-                      <button
-                        key={k}
-                        type="button"
-                        onClick={() => retryFailed(k as 'network' | 'otp_timeout' | 'rate_limit' | 'all')}
-                        className="px-2 py-0.5 rounded text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors"
-                        title="点击重试该类失败"
+            {!batchRunning &&
+              batchFail > 0 &&
+              batchItems.some((it) => it.status === 'failed' || it.status === 'import_failed') &&
+              (() => {
+                // 按错误类型分桶
+                const buckets: Record<string, number> = {
+                  network: 0,
+                  otp_timeout: 0,
+                  email_used: 0,
+                  rate_limit: 0,
+                  risk_control: 0,
+                  auth: 0,
+                  unknown: 0
+                }
+                for (const it of batchItems) {
+                  if (it.status !== 'failed' && it.status !== 'import_failed') continue
+                  const k = classifyError(it.error)
+                  buckets[k] = (buckets[k] || 0) + 1
+                }
+                const labels: Record<string, string> = {
+                  network: '网络错误',
+                  otp_timeout: '验证码超时',
+                  email_used: '邮箱已占用',
+                  rate_limit: '限流',
+                  risk_control: 'AWS 风控',
+                  auth: '认证错误',
+                  unknown: '其它/未知'
+                }
+                return (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg space-y-2">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <span className="text-sm font-medium">{batchFail} 个任务失败</span>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="ml-auto"
+                        onClick={() => retryFailed('all')}
                       >
-                        {labels[k]} ({c})
-                      </button>
-                    ))}
+                        <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                        全部重试
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(buckets)
+                        .filter(([, c]) => c > 0)
+                        .map(([k, c]) => (
+                          <button
+                            key={k}
+                            type="button"
+                            onClick={() =>
+                              retryFailed(k as 'network' | 'otp_timeout' | 'rate_limit' | 'all')
+                            }
+                            className="px-2 py-0.5 rounded text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors"
+                            title="点击重试该类失败"
+                          >
+                            {labels[k]} ({c})
+                          </button>
+                        ))}
+                    </div>
                   </div>
-                </div>
-              )
-            })()}
+                )
+              })()}
 
             {/* 进度 + 每项状态 */}
             {(batchRunning || batchDone > 0) && (
               <div className="space-y-3">
                 <div className="flex items-center gap-4 text-sm">
-                  <span className="font-medium">{t('register.batchProgress')}: {batchDone}/{batchCount}</span>
-                  <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 dark:bg-green-950/30">{t('register.batchSuccess')}: {batchSuccess}</Badge>
-                  <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50 dark:bg-red-950/30">{t('register.batchFail')}: {batchFail}</Badge>
+                  <span className="font-medium">
+                    {t('register.batchProgress')}: {batchDone}/{batchCount}
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-green-600 border-green-200 bg-green-50 dark:bg-green-950/30"
+                  >
+                    {t('register.batchSuccess')}: {batchSuccess}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className="text-red-600 border-red-200 bg-red-50 dark:bg-red-950/30"
+                  >
+                    {t('register.batchFail')}: {batchFail}
+                  </Badge>
                 </div>
-                <Progress value={batchCount > 0 ? (batchDone / batchCount) * 100 : 0} className="h-2" />
+                <Progress
+                  value={batchCount > 0 ? (batchDone / batchCount) * 100 : 0}
+                  className="h-2"
+                />
 
                 {/* 每项状态列表 */}
                 {batchItems.length > 0 && (
                   <div className="max-h-40 overflow-y-auto border rounded-lg bg-muted/20">
                     {batchItems.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between px-3 py-1.5 border-b last:border-b-0 text-xs hover:bg-muted/50 transition-colors">
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between px-3 py-1.5 border-b last:border-b-0 text-xs hover:bg-muted/50 transition-colors"
+                      >
                         <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground w-6 text-right">#{item.index}</span>
-                          {item.status === 'pending' && <span className="text-muted-foreground">—</span>}
-                          {item.status === 'running' && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
-                          {item.status === 'retrying' && <RefreshCw className="h-3 w-3 animate-spin text-yellow-500" />}
-                          {item.status === 'success' && <CheckCircle2 className="h-3 w-3 text-green-500" />}
-                          {item.status === 'imported' && <Download className="h-3 w-3 text-green-600" />}
+                          <span className="text-muted-foreground w-6 text-right">
+                            #{item.index}
+                          </span>
+                          {item.status === 'pending' && (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                          {item.status === 'running' && (
+                            <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                          )}
+                          {item.status === 'retrying' && (
+                            <RefreshCw className="h-3 w-3 animate-spin text-yellow-500" />
+                          )}
+                          {item.status === 'success' && (
+                            <CheckCircle2 className="h-3 w-3 text-green-500" />
+                          )}
+                          {item.status === 'imported' && (
+                            <Download className="h-3 w-3 text-green-600" />
+                          )}
                           {item.status === 'failed' && <XCircle className="h-3 w-3 text-red-500" />}
-                          {item.status === 'import_failed' && <XCircle className="h-3 w-3 text-orange-500" />}
+                          {item.status === 'import_failed' && (
+                            <XCircle className="h-3 w-3 text-orange-500" />
+                          )}
                           {item.email && <span className="font-mono">{item.email}</span>}
                         </div>
-                        <span className={cn('text-xs',
-                          (item.status === 'success' || item.status === 'imported') && 'text-green-600',
-                          (item.status === 'failed' || item.status === 'import_failed') && 'text-red-500',
-                          item.status === 'retrying' && 'text-yellow-600',
-                          (item.status === 'pending' || item.status === 'running') && 'text-muted-foreground'
-                        )}>
-                          {item.status === 'pending' ? '' :
-                           item.status === 'running' ? t('register.processing') :
-                           item.status === 'retrying' ? `${t('register.batchItemRetrying')} (${item.retryCount})` :
-                           item.status === 'success' ? t('register.batchItemSuccess') :
-                           item.status === 'imported' ? t('register.batchItemImported') :
-                           item.status === 'import_failed' ? t('register.batchItemImportFailed') :
-                           item.error || t('register.batchItemFailed')}
+                        <span
+                          className={cn(
+                            'text-xs',
+                            (item.status === 'success' || item.status === 'imported') &&
+                              'text-green-600',
+                            (item.status === 'failed' || item.status === 'import_failed') &&
+                              'text-red-500',
+                            item.status === 'retrying' && 'text-yellow-600',
+                            (item.status === 'pending' || item.status === 'running') &&
+                              'text-muted-foreground'
+                          )}
+                        >
+                          {item.status === 'pending'
+                            ? ''
+                            : item.status === 'running'
+                              ? t('register.processing')
+                              : item.status === 'retrying'
+                                ? `${t('register.batchItemRetrying')} (${item.retryCount})`
+                                : item.status === 'success'
+                                  ? t('register.batchItemSuccess')
+                                  : item.status === 'imported'
+                                    ? t('register.batchItemImported')
+                                    : item.status === 'import_failed'
+                                      ? t('register.batchItemImportFailed')
+                                      : item.error || t('register.batchItemFailed')}
                         </span>
                       </div>
                     ))}
@@ -2591,9 +3424,14 @@ export function RegisterPage(): React.JSX.Element {
 
       {/* 结果 */}
       {result && (
-        <Card className={cn('border shadow-sm',
-          result.status === 'success' ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'
-        )}>
+        <Card
+          className={cn(
+            'border shadow-sm',
+            result.status === 'success'
+              ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
+              : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'
+          )}
+        >
           <CardContent className="pt-5 space-y-3">
             <div className="flex items-center gap-2">
               {result.status === 'success' ? (
@@ -2613,8 +3451,14 @@ export function RegisterPage(): React.JSX.Element {
             {result.status === 'success' && (
               <>
                 <div className="grid grid-cols-2 gap-3 text-sm p-3 bg-background/50 rounded-lg">
-                  <div><span className="text-muted-foreground">{t('register.emailField')}</span> <span className="font-mono font-medium">{result.email}</span></div>
-                  <div><span className="text-muted-foreground">{t('register.passwordField')}</span> <span className="font-mono font-medium">{result.password}</span></div>
+                  <div>
+                    <span className="text-muted-foreground">{t('register.emailField')}</span>{' '}
+                    <span className="font-mono font-medium">{result.email}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">{t('register.passwordField')}</span>{' '}
+                    <span className="font-mono font-medium">{result.password}</span>
+                  </div>
                 </div>
                 <Button
                   onClick={importAccount}
@@ -2624,9 +3468,15 @@ export function RegisterPage(): React.JSX.Element {
                   size="sm"
                 >
                   {imported ? (
-                    <><CheckCircle2 className="h-4 w-4 mr-2" />{t('register.imported')}</>
+                    <>
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      {t('register.imported')}
+                    </>
                   ) : (
-                    <><UserPlus className="h-4 w-4 mr-2" />{t('register.importToManager')}</>
+                    <>
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      {t('register.importToManager')}
+                    </>
                   )}
                 </Button>
               </>
@@ -2665,11 +3515,20 @@ export function RegisterPage(): React.JSX.Element {
               {history.map((item) => {
                 const fp = item.result?.fingerprint
                 return (
-                  <div key={item.id} className="flex items-center justify-between px-4 py-2.5 border-b last:border-b-0 hover:bg-muted/50 transition-colors">
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between px-4 py-2.5 border-b last:border-b-0 hover:bg-muted/50 transition-colors"
+                  >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {item.status === 'success' ? <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" /> : <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />}
+                      {item.status === 'success' ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                      )}
                       <span className="font-mono text-xs truncate">{item.email}</span>
-                      <span className="text-xs text-muted-foreground flex-shrink-0">{new Date(item.time).toLocaleTimeString()}</span>
+                      <span className="text-xs text-muted-foreground flex-shrink-0">
+                        {new Date(item.time).toLocaleTimeString()}
+                      </span>
                       {/* 指纹摘要徽章（B7） */}
                       {fp && (
                         <span
@@ -2683,7 +3542,12 @@ export function RegisterPage(): React.JSX.Element {
                     {item.status === 'success' && item.result?.refreshToken && (
                       <Badge
                         variant="outline"
-                        className={cn('cursor-pointer text-xs', item.imported ? 'text-green-600 border-green-200' : 'text-primary border-primary/30 hover:bg-primary/10')}
+                        className={cn(
+                          'cursor-pointer text-xs',
+                          item.imported
+                            ? 'text-green-600 border-green-200'
+                            : 'text-primary border-primary/30 hover:bg-primary/10'
+                        )}
                         onClick={() => !item.imported && importHistoryItem(item)}
                       >
                         {item.imported ? t('register.imported') : t('register.historyImport')}
@@ -2703,15 +3567,27 @@ export function RegisterPage(): React.JSX.Element {
           <CardHeader className="py-3 border-b">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm">{t('register.log')}</CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => { _logs = []; setLogs([]) }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  _logs = []
+                  setLogs([])
+                }}
+              >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <div ref={logContainerRef} className="h-48 overflow-y-auto p-3 font-mono text-xs space-y-0.5 bg-muted/20">
+            <div
+              ref={logContainerRef}
+              className="h-48 overflow-y-auto p-3 font-mono text-xs space-y-0.5 bg-muted/20"
+            >
               {logs.map((line, i) => (
-                <div key={i} className="text-muted-foreground leading-relaxed">{line}</div>
+                <div key={i} className="text-muted-foreground leading-relaxed">
+                  {line}
+                </div>
               ))}
             </div>
           </CardContent>
@@ -2730,10 +3606,11 @@ interface RegisterAnalyticsProps {
 function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.ReactNode {
   const analytics = useMemo(() => {
     const total = history.length
-    let success = 0, failed = 0
+    let success = 0,
+      failed = 0
     const byMode: Record<string, { success: number; failed: number }> = {}
     const byHour: Record<number, { success: number; failed: number }> = {}
-    const byDay: Record<string, { success: number; failed: number }> = {}  // 7 日趋势
+    const byDay: Record<string, { success: number; failed: number }> = {} // 7 日趋势
     const errorBuckets: Record<string, number> = {}
 
     const now = Date.now()
@@ -2747,18 +3624,22 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
     }
 
     for (const h of history) {
-      if (h.status === 'success') success++; else failed++
+      if (h.status === 'success') success++
+      else failed++
       const m = (h.result as { provider?: string } | undefined)?.provider || 'BuilderId'
       if (!byMode[m]) byMode[m] = { success: 0, failed: 0 }
-      if (h.status === 'success') byMode[m].success++; else byMode[m].failed++
+      if (h.status === 'success') byMode[m].success++
+      else byMode[m].failed++
       const dt = new Date(h.time)
       const hr = dt.getHours()
       if (!byHour[hr]) byHour[hr] = { success: 0, failed: 0 }
-      if (h.status === 'success') byHour[hr].success++; else byHour[hr].failed++
+      if (h.status === 'success') byHour[hr].success++
+      else byHour[hr].failed++
       // 日桶（7 天内）
       const dayKey = `${dt.getMonth() + 1}/${dt.getDate()}`
       if (byDay[dayKey]) {
-        if (h.status === 'success') byDay[dayKey].success++; else byDay[dayKey].failed++
+        if (h.status === 'success') byDay[dayKey].success++
+        else byDay[dayKey].failed++
       }
       if (h.status === 'failed') {
         const cat = classifyError(h.error)
@@ -2767,7 +3648,7 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
     }
     const successRate = total > 0 ? success / total : 0
     const peakHours = Object.entries(byHour)
-      .filter(([, v]) => v.success + v.failed >= 2)  // 至少 2 个样本
+      .filter(([, v]) => v.success + v.failed >= 2) // 至少 2 个样本
       .sort((a, b) => {
         const ar = a[1].success / (a[1].success + a[1].failed)
         const br = b[1].success / (b[1].success + b[1].failed)
@@ -2776,7 +3657,18 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
       .slice(0, 3)
     const topErrors = Object.entries(errorBuckets).sort((a, b) => b[1] - a[1])
 
-    return { total, success, failed, successRate, byMode, byHour, byDay, sevenDays, peakHours, topErrors }
+    return {
+      total,
+      success,
+      failed,
+      successRate,
+      byMode,
+      byHour,
+      byDay,
+      sevenDays,
+      peakHours,
+      topErrors
+    }
   }, [history])
 
   const handleExportCSV = useCallback((): void => {
@@ -2787,13 +3679,15 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
         const escaped = v.replace(/"/g, '""')
         return /[,"\n]/.test(escaped) ? `"${escaped}"` : escaped
       }
-      lines.push([
-        new Date(h.time).toISOString(),
-        csvEsc(h.email),
-        h.status,
-        csvEsc(h.error),
-        csvEsc(h.password)
-      ].join(','))
+      lines.push(
+        [
+          new Date(h.time).toISOString(),
+          csvEsc(h.email),
+          h.status,
+          csvEsc(h.error),
+          csvEsc(h.password)
+        ].join(',')
+      )
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -2814,8 +3708,8 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
     unknown: { label: '其它/未知', color: 'bg-gray-500' }
   }
 
-  const successColor = analytics.successRate >= 0.85 ? '#22c55e'
-    : analytics.successRate >= 0.6 ? '#f59e0b' : '#ef4444'
+  const successColor =
+    analytics.successRate >= 0.85 ? '#22c55e' : analytics.successRate >= 0.6 ? '#f59e0b' : '#ef4444'
 
   // SVG 圆环图参数
   const ringRadius = 36
@@ -2853,7 +3747,9 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
             <svg width="120" height="120" viewBox="0 0 100 100">
               {/* 底圈 */}
               <circle
-                cx="50" cy="50" r={ringRadius}
+                cx="50"
+                cy="50"
+                r={ringRadius}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth={ringStroke}
@@ -2861,7 +3757,9 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
               />
               {/* 成功率圈 */}
               <circle
-                cx="50" cy="50" r={ringRadius}
+                cx="50"
+                cy="50"
+                r={ringRadius}
                 fill="none"
                 stroke={successColor}
                 strokeWidth={ringStroke}
@@ -2887,14 +3785,18 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
                 <span className="text-[10px] text-muted-foreground">成功</span>
                 <CheckCircle2 className="h-3 w-3 text-green-500" />
               </div>
-              <div className="text-xl font-bold tabular-nums text-green-600 mt-0.5">{analytics.success}</div>
+              <div className="text-xl font-bold tabular-nums text-green-600 mt-0.5">
+                {analytics.success}
+              </div>
             </div>
             <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/20">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-muted-foreground">失败</span>
                 <XCircle className="h-3 w-3 text-red-500" />
               </div>
-              <div className="text-xl font-bold tabular-nums text-red-600 mt-0.5">{analytics.failed}</div>
+              <div className="text-xl font-bold tabular-nums text-red-600 mt-0.5">
+                {analytics.failed}
+              </div>
             </div>
             <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 col-span-2">
               <div className="flex items-center justify-between mb-1">
@@ -2908,7 +3810,7 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
               ) : (
                 <div className="flex gap-2">
                   {analytics.peakHours.map(([h, v]) => {
-                    const sr = Math.round(v.success / (v.success + v.failed) * 100)
+                    const sr = Math.round((v.success / (v.success + v.failed)) * 100)
                     return (
                       <div key={h} className="flex-1 text-center">
                         <div className="text-sm font-bold font-mono">{h.padStart(2, '0')}:00</div>
@@ -2952,23 +3854,35 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-medium">失败原因分布</span>
-              <span className="text-[10px] text-muted-foreground">共 {analytics.failed} 次失败</span>
+              <span className="text-[10px] text-muted-foreground">
+                共 {analytics.failed} 次失败
+              </span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {analytics.topErrors.map(([cat, count]) => {
                 const meta = errorLabels[cat] || { label: cat, color: 'bg-gray-500' }
                 const pct = Math.round((count / analytics.failed) * 100)
                 return (
-                  <div key={cat} className="p-2 rounded-lg border bg-card hover:bg-muted/30 transition-colors">
+                  <div
+                    key={cat}
+                    className="p-2 rounded-lg border bg-card hover:bg-muted/30 transition-colors"
+                  >
                     <div className="flex items-center gap-2 mb-1">
                       <div className={cn('w-2 h-2 rounded-full', meta.color)} />
                       <span className="text-xs font-medium flex-1 truncate">{meta.label}</span>
-                      <span className="text-xs font-mono tabular-nums text-muted-foreground">{count}</span>
+                      <span className="text-xs font-mono tabular-nums text-muted-foreground">
+                        {count}
+                      </span>
                     </div>
                     <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div className={cn('h-full transition-all', meta.color)} style={{ width: `${pct}%` }} />
+                      <div
+                        className={cn('h-full transition-all', meta.color)}
+                        style={{ width: `${pct}%` }}
+                      />
                     </div>
-                    <div className="text-right text-[10px] text-muted-foreground tabular-nums mt-0.5">{pct}%</div>
+                    <div className="text-right text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                      {pct}%
+                    </div>
                   </div>
                 )
               })}
@@ -2983,14 +3897,17 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {Object.entries(analytics.byMode).map(([m, v]) => {
                 const t = v.success + v.failed
-                const sr = t > 0 ? Math.round(v.success / t * 100) : 0
-                const srColor = sr >= 80 ? 'text-green-600' : sr >= 50 ? 'text-amber-600' : 'text-red-600'
+                const sr = t > 0 ? Math.round((v.success / t) * 100) : 0
+                const srColor =
+                  sr >= 80 ? 'text-green-600' : sr >= 50 ? 'text-amber-600' : 'text-red-600'
                 const srBg = sr >= 80 ? 'bg-green-500' : sr >= 50 ? 'bg-amber-500' : 'bg-red-500'
                 return (
                   <div key={m} className="p-3 rounded-lg border bg-card">
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-xs font-medium">{m}</span>
-                      <span className={cn('text-xs font-mono tabular-nums font-bold', srColor)}>{sr}%</span>
+                      <span className={cn('text-xs font-mono tabular-nums font-bold', srColor)}>
+                        {sr}%
+                      </span>
                     </div>
                     <div className="h-1 bg-muted rounded-full overflow-hidden">
                       <div className={cn('h-full', srBg)} style={{ width: `${sr}%` }} />
@@ -3010,10 +3927,18 @@ function RegisterAnalyticsReport({ history }: RegisterAnalyticsProps): React.Rea
 }
 
 /** 24 小时分布 SVG 图（平滑曲线 + 渐变填充） */
-function HourDistributionChart({ byHour }: { byHour: Record<number, { success: number; failed: number }> }): React.ReactNode {
-  const width = 720, height = 100, padTop = 8, padBottom = 18, padX = 12
+function HourDistributionChart({
+  byHour
+}: {
+  byHour: Record<number, { success: number; failed: number }>
+}): React.ReactNode {
+  const width = 720,
+    height = 100,
+    padTop = 8,
+    padBottom = 18,
+    padX = 12
   const innerH = height - padTop - padBottom
-  const stepX = (width - padX * 2) / 23  // 24 个点
+  const stepX = (width - padX * 2) / 23 // 24 个点
 
   // 计算最大值
   let maxVal = 0
@@ -3058,7 +3983,12 @@ function HourDistributionChart({ byHour }: { byHour: Record<number, { success: n
   const fail = buildPath('failed')
 
   return (
-    <svg width="100%" viewBox={`0 0 ${width} ${height}`} className="overflow-visible" preserveAspectRatio="none">
+    <svg
+      width="100%"
+      viewBox={`0 0 ${width} ${height}`}
+      className="overflow-visible"
+      preserveAspectRatio="none"
+    >
       <defs>
         <linearGradient id="succGradient" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="rgb(34 197 94)" stopOpacity="0.35" />
@@ -3074,9 +4004,13 @@ function HourDistributionChart({ byHour }: { byHour: Record<number, { success: n
       {[0.25, 0.5, 0.75].map((p) => (
         <line
           key={p}
-          x1={padX} x2={width - padX}
-          y1={padTop + innerH * p} y2={padTop + innerH * p}
-          stroke="currentColor" strokeOpacity="0.06" strokeDasharray="2,3"
+          x1={padX}
+          x2={width - padX}
+          y1={padTop + innerH * p}
+          y2={padTop + innerH * p}
+          stroke="currentColor"
+          strokeOpacity="0.06"
+          strokeDasharray="2,3"
         />
       ))}
 
@@ -3094,14 +4028,16 @@ function HourDistributionChart({ byHour }: { byHour: Record<number, { success: n
         if (v.success === 0 && v.failed === 0) return null
         return (
           <g key={h}>
-            {v.success > 0 && (() => {
-              const [x, y] = pointAt(h, v.success)
-              return <circle cx={x} cy={y} r="2.5" fill="rgb(34 197 94)" />
-            })()}
-            {v.failed > 0 && (() => {
-              const [x, y] = pointAt(h, v.failed)
-              return <circle cx={x} cy={y} r="2" fill="rgb(239 68 68)" />
-            })()}
+            {v.success > 0 &&
+              (() => {
+                const [x, y] = pointAt(h, v.success)
+                return <circle cx={x} cy={y} r="2.5" fill="rgb(34 197 94)" />
+              })()}
+            {v.failed > 0 &&
+              (() => {
+                const [x, y] = pointAt(h, v.failed)
+                return <circle cx={x} cy={y} r="2" fill="rgb(239 68 68)" />
+              })()}
           </g>
         )
       })}
@@ -3111,8 +4047,22 @@ function HourDistributionChart({ byHour }: { byHour: Record<number, { success: n
         const x = padX + h * stepX
         return (
           <g key={h}>
-            <line x1={x} x2={x} y1={padTop + innerH} y2={padTop + innerH + 3} stroke="currentColor" opacity="0.3" />
-            <text x={x} y={height - 4} fontSize="9" fill="currentColor" opacity="0.5" textAnchor="middle">
+            <line
+              x1={x}
+              x2={x}
+              y1={padTop + innerH}
+              y2={padTop + innerH + 3}
+              stroke="currentColor"
+              opacity="0.3"
+            />
+            <text
+              x={x}
+              y={height - 4}
+              fontSize="9"
+              fill="currentColor"
+              opacity="0.5"
+              textAnchor="middle"
+            >
               {h.toString().padStart(2, '0')}:00
             </text>
           </g>
@@ -3123,13 +4073,20 @@ function HourDistributionChart({ byHour }: { byHour: Record<number, { success: n
 }
 
 /** 7 日趋势柱状图（叠加 + 渐变） */
-function SevenDayChart({ sevenDays, byDay }: {
+function SevenDayChart({
+  sevenDays,
+  byDay
+}: {
   sevenDays: string[]
   byDay: Record<string, { success: number; failed: number }>
 }): React.ReactNode {
-  const width = 720, height = 80, padTop = 8, padBottom = 18, padX = 16
+  const width = 720,
+    height = 80,
+    padTop = 8,
+    padBottom = 18,
+    padX = 16
   const innerH = height - padTop - padBottom
-  const barW = (width - padX * 2) / sevenDays.length * 0.6
+  const barW = ((width - padX * 2) / sevenDays.length) * 0.6
   const gap = (width - padX * 2) / sevenDays.length
 
   let maxTotal = 0
@@ -3140,7 +4097,12 @@ function SevenDayChart({ sevenDays, byDay }: {
   if (maxTotal === 0) maxTotal = 1
 
   return (
-    <svg width="100%" viewBox={`0 0 ${width} ${height}`} className="overflow-visible" preserveAspectRatio="none">
+    <svg
+      width="100%"
+      viewBox={`0 0 ${width} ${height}`}
+      className="overflow-visible"
+      preserveAspectRatio="none"
+    >
       <defs>
         <linearGradient id="barSuccGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="rgb(34 197 94)" stopOpacity="1" />
@@ -3156,9 +4118,13 @@ function SevenDayChart({ sevenDays, byDay }: {
       {[0.5].map((p) => (
         <line
           key={p}
-          x1={padX} x2={width - padX}
-          y1={padTop + innerH * p} y2={padTop + innerH * p}
-          stroke="currentColor" strokeOpacity="0.06" strokeDasharray="2,3"
+          x1={padX}
+          x2={width - padX}
+          y1={padTop + innerH * p}
+          y2={padTop + innerH * p}
+          stroke="currentColor"
+          strokeOpacity="0.06"
+          strokeDasharray="2,3"
         />
       ))}
 
@@ -3176,8 +4142,10 @@ function SevenDayChart({ sevenDays, byDay }: {
             {/* 失败（上面） */}
             {v.failed > 0 && (
               <rect
-                x={x} y={yBase - totalH}
-                width={barW} height={failH}
+                x={x}
+                y={yBase - totalH}
+                width={barW}
+                height={failH}
                 fill="url(#barFailGrad)"
                 rx="2"
               />
@@ -3185,8 +4153,10 @@ function SevenDayChart({ sevenDays, byDay }: {
             {/* 成功（下面） */}
             {v.success > 0 && (
               <rect
-                x={x} y={yBase - succH}
-                width={barW} height={succH}
+                x={x}
+                y={yBase - succH}
+                width={barW}
+                height={succH}
                 fill="url(#barSuccGrad)"
                 rx="2"
               />
@@ -3236,12 +4206,15 @@ function EmailBlacklistManager(): React.ReactNode {
     setItems(Array.from(loadEmailBlacklist()))
   }, [])
 
-  const removeOne = useCallback((email: string): void => {
-    const set = loadEmailBlacklist()
-    set.delete(email.toLowerCase())
-    saveEmailBlacklist(set)
-    refresh()
-  }, [refresh])
+  const removeOne = useCallback(
+    (email: string): void => {
+      const set = loadEmailBlacklist()
+      set.delete(email.toLowerCase())
+      saveEmailBlacklist(set)
+      refresh()
+    },
+    [refresh]
+  )
 
   const clearAll = useCallback((): void => {
     if (!confirm(`确定清空黑名单中的 ${items.length} 个邮箱？`)) return
@@ -3262,13 +4235,18 @@ function EmailBlacklistManager(): React.ReactNode {
       <CardHeader className="pb-2">
         <button
           type="button"
-          onClick={() => { setExpanded(!expanded); if (!expanded) refresh() }}
+          onClick={() => {
+            setExpanded(!expanded)
+            if (!expanded) refresh()
+          }}
           className="w-full flex items-center justify-between"
         >
           <CardTitle className="text-sm flex items-center gap-2">
             <XCircle className="h-4 w-4 text-amber-500" />
             占用邮箱黑名单
-            <Badge variant="outline" className="text-[10px]">{items.length}</Badge>
+            <Badge variant="outline" className="text-[10px]">
+              {items.length}
+            </Badge>
           </CardTitle>
           <span className="text-xs text-muted-foreground">{expanded ? '▼ 收起' : '▶ 展开'}</span>
         </button>
@@ -3297,13 +4275,9 @@ function EmailBlacklistManager(): React.ReactNode {
           </div>
 
           {items.length === 0 ? (
-            <div className="py-6 text-center text-xs text-muted-foreground">
-              黑名单为空
-            </div>
+            <div className="py-6 text-center text-xs text-muted-foreground">黑名单为空</div>
           ) : filtered.length === 0 ? (
-            <div className="py-4 text-center text-xs text-muted-foreground">
-              无匹配项
-            </div>
+            <div className="py-4 text-center text-xs text-muted-foreground">无匹配项</div>
           ) : (
             <div className="max-h-60 overflow-y-auto border rounded">
               {filtered.map((email) => (
@@ -3311,7 +4285,9 @@ function EmailBlacklistManager(): React.ReactNode {
                   key={email}
                   className="flex items-center justify-between gap-2 px-2 py-1 border-b last:border-b-0 hover:bg-muted/40 text-xs"
                 >
-                  <span className="font-mono truncate flex-1" title={email}>{email}</span>
+                  <span className="font-mono truncate flex-1" title={email}>
+                    {email}
+                  </span>
                   <button
                     onClick={() => removeOne(email)}
                     className="p-1 rounded hover:bg-destructive/10 text-destructive"

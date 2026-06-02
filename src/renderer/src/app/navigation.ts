@@ -1,5 +1,21 @@
 import type { LucideIcon } from 'lucide-react'
-import { Archive, Bell, CreditCard, Fingerprint, Home, Info, Network, ScrollText, Server, Settings, Shield, Sparkles, Stethoscope, UserPlus, Users } from 'lucide-react'
+import {
+  Archive,
+  Bell,
+  CreditCard,
+  Fingerprint,
+  Home,
+  Info,
+  Network,
+  ScrollText,
+  Server,
+  Settings,
+  Shield,
+  Sparkles,
+  Stethoscope,
+  UserPlus,
+  Users
+} from 'lucide-react'
 
 export type PageType =
   | 'home'

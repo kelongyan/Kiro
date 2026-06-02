@@ -1,7 +1,16 @@
 import { useState, useCallback } from 'react'
 import {
-  Stethoscope, CheckCircle2, XCircle, Loader2, Play, AlertTriangle,
-  Globe, Network, Mail, Activity, Download
+  Stethoscope,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Play,
+  AlertTriangle,
+  Globe,
+  Network,
+  Mail,
+  Activity,
+  Download
 } from 'lucide-react'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useAccountsStore } from '@/store/accounts'
@@ -20,49 +29,67 @@ interface DiagnoseTarget {
 const DEFAULT_TARGETS: DiagnoseTarget[] = [
   // 网络连通
   {
-    id: 'public-ip', label: '公网连通性', url: 'https://api.ipify.org?format=json',
-    category: 'network', description: '检测能否访问互联网（基础连通性）'
+    id: 'public-ip',
+    label: '公网连通性',
+    url: 'https://api.ipify.org?format=json',
+    category: 'network',
+    description: '检测能否访问互联网（基础连通性）'
   },
   {
-    id: 'cloudflare', label: 'Cloudflare', url: 'https://1.1.1.1',
-    category: 'network', description: '检测国际网络是否通畅'
+    id: 'cloudflare',
+    label: 'Cloudflare',
+    url: 'https://1.1.1.1',
+    category: 'network',
+    description: '检测国际网络是否通畅'
   },
   // Kiro / AWS
   {
-    id: 'kiro-auth', label: 'Kiro Auth Endpoint',
+    id: 'kiro-auth',
+    label: 'Kiro Auth Endpoint',
     url: 'https://prod.us-east-1.auth.desktop.kiro.dev/.well-known/openid-configuration',
-    category: 'kiro', description: '社交登录 Token 刷新端点',
+    category: 'kiro',
+    description: '社交登录 Token 刷新端点',
     expectStatus: [200, 401, 403, 404]
   },
   {
-    id: 'kiro-oidc', label: 'AWS OIDC',
+    id: 'kiro-oidc',
+    label: 'AWS OIDC',
     url: 'https://oidc.us-east-1.amazonaws.com/',
-    category: 'kiro', description: 'OIDC 注册端点',
+    category: 'kiro',
+    description: 'OIDC 注册端点',
     expectStatus: [200, 400, 403, 405]
   },
   {
-    id: 'kiro-codewhisperer', label: 'CodeWhisperer API',
+    id: 'kiro-codewhisperer',
+    label: 'CodeWhisperer API',
     url: 'https://q.us-east-1.amazonaws.com/',
-    category: 'kiro', description: 'Kiro 主 API 端点（q.amazonaws.com）',
+    category: 'kiro',
+    description: 'Kiro 主 API 端点（q.amazonaws.com）',
     expectStatus: [200, 400, 403, 405]
   },
   {
-    id: 'aws-signin', label: 'AWS SignIn',
+    id: 'aws-signin',
+    label: 'AWS SignIn',
     url: 'https://us-east-1.signin.aws/',
-    category: 'kiro', description: '注册流程必经端点',
+    category: 'kiro',
+    description: '注册流程必经端点',
     expectStatus: [200, 400, 403]
   },
   // Email Services
   {
-    id: 'tempmail-plus', label: 'TempMail.Plus API',
+    id: 'tempmail-plus',
+    label: 'TempMail.Plus API',
     url: 'https://tempmail.plus/api/mails?email=test@mailto.plus',
-    category: 'email', description: 'TempMail.Plus 邮箱服务',
+    category: 'email',
+    description: 'TempMail.Plus 邮箱服务',
     expectStatus: [200, 400, 401, 403]
   },
   {
-    id: 'outlook-login', label: 'Outlook Login',
+    id: 'outlook-login',
+    label: 'Outlook Login',
     url: 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
-    category: 'email', description: 'Outlook Token 刷新端点',
+    category: 'email',
+    description: 'Outlook Token 刷新端点',
     expectStatus: [200, 400, 405]
   }
 ]
@@ -75,7 +102,13 @@ const CATEGORIES = [
   { id: 'custom', label: '自定义', icon: Activity, color: 'text-emerald-500' }
 ] as const
 
-type DiagnoseResult = { id: string; success: boolean; httpStatus?: number; latencyMs?: number; error?: string }
+type DiagnoseResult = {
+  id: string
+  success: boolean
+  httpStatus?: number
+  latencyMs?: number
+  error?: string
+}
 
 export function DiagnosePage(): React.ReactNode {
   const { t } = useTranslation()
@@ -94,10 +127,14 @@ export function DiagnosePage(): React.ReactNode {
         try {
           localStorage.setItem('kiro-diagnose-probe-url', legacy)
           localStorage.removeItem('kiro-diagnose-moemail')
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
       return legacy
-    } catch { return '' }
+    } catch {
+      return ''
+    }
   })
   const [useProxy, setUseProxy] = useState<boolean>(false)
   const [selectedProxyId, setSelectedProxyId] = useState<string>('')
@@ -105,7 +142,9 @@ export function DiagnosePage(): React.ReactNode {
   const [results, setResults] = useState<Record<string, DiagnoseResult>>({})
   const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 })
 
-  const availableProxies = Array.from(proxyPool.values()).filter((p) => p.enabled && p.status !== 'dead')
+  const availableProxies = Array.from(proxyPool.values()).filter(
+    (p) => p.enabled && p.status !== 'dead'
+  )
 
   const buildTargets = useCallback((): DiagnoseTarget[] => {
     const list = [...DEFAULT_TARGETS]
@@ -132,9 +171,7 @@ export function DiagnosePage(): React.ReactNode {
     setResults({})
     setProgress({ done: 0, total: targets.length })
 
-    const proxyUrl = useProxy && selectedProxyId
-      ? proxyPool.get(selectedProxyId)?.url
-      : undefined
+    const proxyUrl = useProxy && selectedProxyId ? proxyPool.get(selectedProxyId)?.url : undefined
 
     try {
       // 分批跑，每次 4 个，让结果逐步出现
@@ -144,7 +181,12 @@ export function DiagnosePage(): React.ReactNode {
         const slice = targets.slice(i, i + BATCH)
         const resp = await window.api.diagnoseRun({
           proxyUrl,
-          targets: slice.map((tg) => ({ id: tg.id, label: tg.label, url: tg.url, expectStatus: tg.expectStatus }))
+          targets: slice.map((tg) => ({
+            id: tg.id,
+            label: tg.label,
+            url: tg.url,
+            expectStatus: tg.expectStatus
+          }))
         })
         for (const r of resp.results) {
           next[r.id] = r
@@ -155,7 +197,11 @@ export function DiagnosePage(): React.ReactNode {
     } finally {
       setIsRunning(false)
       // 持久化用户填的探测 URL
-      try { localStorage.setItem('kiro-diagnose-probe-url', customProbeUrl) } catch { /* ignore */ }
+      try {
+        localStorage.setItem('kiro-diagnose-probe-url', customProbeUrl)
+      } catch {
+        /* ignore */
+      }
     }
   }, [buildTargets, useProxy, selectedProxyId, proxyPool, customProbeUrl])
 
@@ -211,8 +257,7 @@ export function DiagnosePage(): React.ReactNode {
             <p className="text-muted-foreground">
               {isEn
                 ? 'Test network / Kiro API / email service / proxy connectivity in one click.'
-                : '一键检测网络、Kiro/AWS API、邮箱服务、代理连通性，快速定位问题'
-              }
+                : '一键检测网络、Kiro/AWS API、邮箱服务、代理连通性，快速定位问题'}
             </p>
           </div>
         </div>
@@ -229,7 +274,9 @@ export function DiagnosePage(): React.ReactNode {
         <CardContent className="space-y-3">
           {/* 自定义探测 URL */}
           <div className="space-y-1">
-            <Label className="text-xs">{isEn ? 'Custom probe URL (optional)' : '自定义探测 URL（可选）'}</Label>
+            <Label className="text-xs">
+              {isEn ? 'Custom probe URL (optional)' : '自定义探测 URL（可选）'}
+            </Label>
             <Input
               value={customProbeUrl}
               onChange={(e) => setCustomProbeUrl(e.target.value)}
@@ -255,8 +302,8 @@ export function DiagnosePage(): React.ReactNode {
               />
               <span>{isEn ? 'Test through proxy' : '通过代理测试'}</span>
             </label>
-            {useProxy && (
-              availableProxies.length > 0 ? (
+            {useProxy &&
+              (availableProxies.length > 0 ? (
                 <select
                   value={selectedProxyId}
                   onChange={(e) => setSelectedProxyId(e.target.value)}
@@ -274,22 +321,25 @@ export function DiagnosePage(): React.ReactNode {
                 </select>
               ) : (
                 <span className="text-xs text-muted-foreground italic">
-                  {proxyPoolConfig.enabled ? '代理池无可用代理' : '代理池未启用，请先在「代理池」配置'}
+                  {proxyPoolConfig.enabled
+                    ? '代理池无可用代理'
+                    : '代理池未启用，请先在「代理池」配置'}
                 </span>
-              )
-            )}
+              ))}
           </div>
 
           <div className="flex items-center gap-2 pt-2">
             <Button onClick={runDiagnose} disabled={isRunning}>
-              {isRunning
-                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                : <Play className="h-4 w-4 mr-1" />
-              }
+              {isRunning ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4 mr-1" />
+              )}
               {isRunning
                 ? `运行中 ${progress.done}/${progress.total}`
-                : (isEn ? 'Run Diagnostics' : '开始诊断')
-              }
+                : isEn
+                  ? 'Run Diagnostics'
+                  : '开始诊断'}
             </Button>
             {stats.total > 0 && (
               <Button variant="outline" size="sm" onClick={exportReport}>
@@ -350,7 +400,9 @@ export function DiagnosePage(): React.ReactNode {
                         {tg.url}
                       </div>
                       {tg.description && (
-                        <div className="text-[10px] text-muted-foreground italic">{tg.description}</div>
+                        <div className="text-[10px] text-muted-foreground italic">
+                          {tg.description}
+                        </div>
                       )}
                       {r?.error && (
                         <div className="text-[10px] text-red-500 mt-0.5 flex items-start gap-1">
@@ -362,11 +414,18 @@ export function DiagnosePage(): React.ReactNode {
                     {r && (
                       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                         {r.httpStatus && (
-                          <span className={cn(
-                            'font-mono px-1.5 py-0.5 rounded',
-                            r.httpStatus >= 200 && r.httpStatus < 300 && 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
-                            r.httpStatus >= 400 && 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                          )}>HTTP {r.httpStatus}</span>
+                          <span
+                            className={cn(
+                              'font-mono px-1.5 py-0.5 rounded',
+                              r.httpStatus >= 200 &&
+                                r.httpStatus < 300 &&
+                                'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
+                              r.httpStatus >= 400 &&
+                                'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                            )}
+                          >
+                            HTTP {r.httpStatus}
+                          </span>
                         )}
                         {r.latencyMs != null && (
                           <span className="font-mono tabular-nums">{r.latencyMs}ms</span>

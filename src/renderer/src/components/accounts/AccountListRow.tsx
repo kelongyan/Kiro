@@ -86,10 +86,10 @@ function AccountListRowComponent({
 
   // 标签
   const accountTags = useMemo(
-    () => (account.tags || []).map(id => tags.get(id)).filter((t): t is AccountTag => !!t),
+    () => (account.tags || []).map((id) => tags.get(id)).filter((t): t is AccountTag => !!t),
     [account.tags, tags]
   )
-  const tagColors = useMemo(() => accountTags.map(t => t.color), [accountTags])
+  const tagColors = useMemo(() => accountTags.map((t) => t.color), [accountTags])
 
   // 分组
   const accountGroup = useMemo(() => {
@@ -133,112 +133,149 @@ function AccountListRowComponent({
   }, [account.isActive, isUnauthorized, tagColors])
 
   // === Handlers ===
-  const handleSwitch = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const { credentials } = account
-    const { switchTarget } = useAccountsStore.getState()
+  const handleSwitch = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation()
+      const { credentials } = account
+      const { switchTarget } = useAccountsStore.getState()
 
-    if (!credentials.refreshToken) {
-      alert(isEn ? 'Incomplete credentials, cannot switch' : '账号凭证不完整，无法切换')
-      return
-    }
-    if (credentials.authMethod !== 'social' && (!credentials.clientId || !credentials.clientSecret)) {
-      alert(isEn ? 'Incomplete credentials, cannot switch' : '账号凭证不完整，无法切换')
-      return
-    }
-
-    const cliPayload = {
-      accessToken: credentials.accessToken,
-      refreshToken: credentials.refreshToken,
-      clientId: credentials.clientId,
-      clientSecret: credentials.clientSecret,
-      region: credentials.region || 'us-east-1',
-      profileArn: account.profileArn,
-      provider: credentials.provider
-    }
-    const idePayload = {
-      accessToken: credentials.accessToken,
-      refreshToken: credentials.refreshToken,
-      clientId: credentials.clientId || '',
-      clientSecret: credentials.clientSecret || '',
-      region: credentials.region || 'us-east-1',
-      startUrl: credentials.startUrl,
-      authMethod: credentials.authMethod,
-      provider: credentials.provider,
-      profileArn: account.profileArn
-    }
-
-    let success = true
-    let errorMsg = ''
-    const target = switchTarget || 'ide'
-    if (target === 'ide' || target === 'both') {
-      const result = await window.api.switchAccount(idePayload)
-      if (!result.success) { success = false; errorMsg = result.error || '' }
-    }
-    if (target === 'cli' || target === 'both') {
-      const result = await window.api.switchAccountCli(cliPayload)
-      if (!result.success && target === 'cli') { success = false; errorMsg = result.error || '' }
-    }
-
-    if (success) {
-      setActiveAccount(account.id)
-    } else {
-      alert(isEn ? `Switch failed: ${errorMsg}` : `切换失败：${errorMsg}`)
-    }
-  }, [account, isEn, setActiveAccount])
-
-  const handleRefresh = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (isRefreshing) return
-    setIsRefreshing(true)
-    try {
-      await refreshAccountToken(account.id)
-      await checkAccountStatus(account.id)
-    } finally {
-      setIsRefreshing(false)
-    }
-  }, [account.id, isRefreshing, refreshAccountToken, checkAccountStatus])
-
-  const handleDelete = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!confirm(isEn ? `Delete account "${account.email}"?` : `确定删除账号 "${account.email}"？`)) return
-    removeAccount(account.id)
-  }, [account.id, account.email, isEn, removeAccount])
-
-  const handleLogout = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!confirm(isEn ? 'Clear local SSO cache and logout from Kiro?' : '清除本地 SSO 缓存并退出 Kiro 登录？')) return
-    const result = await window.api.logoutAccount()
-    if (result.success) {
-      setActiveAccount(null)
-    } else {
-      alert(isEn ? `Logout failed: ${result.error}` : `退出失败：${result.error}`)
-    }
-  }, [isEn, setActiveAccount])
-
-  const handleClearSuspended = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (isClearingSuspended) return
-    setIsClearingSuspended(true)
-    try {
-      const result = await window.api.proxyClearAccountSuspended(account.id)
-      if (result.success) {
-        updateAccountStatus(account.id, 'active', undefined)
+      if (!credentials.refreshToken) {
+        alert(isEn ? 'Incomplete credentials, cannot switch' : '账号凭证不完整，无法切换')
+        return
       }
-    } finally {
-      setIsClearingSuspended(false)
-    }
-  }, [account.id, isClearingSuspended, updateAccountStatus])
+      if (
+        credentials.authMethod !== 'social' &&
+        (!credentials.clientId || !credentials.clientSecret)
+      ) {
+        alert(isEn ? 'Incomplete credentials, cannot switch' : '账号凭证不完整，无法切换')
+        return
+      }
 
-  const handleCopyEmail = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    const text = account.email || account.userId || ''
-    if (text) {
-      navigator.clipboard.writeText(text)
-      setEmailCopied(true)
-      setTimeout(() => setEmailCopied(false), 1500)
-    }
-  }, [account.email, account.userId])
+      const cliPayload = {
+        accessToken: credentials.accessToken,
+        refreshToken: credentials.refreshToken,
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
+        region: credentials.region || 'us-east-1',
+        profileArn: account.profileArn,
+        provider: credentials.provider
+      }
+      const idePayload = {
+        accessToken: credentials.accessToken,
+        refreshToken: credentials.refreshToken,
+        clientId: credentials.clientId || '',
+        clientSecret: credentials.clientSecret || '',
+        region: credentials.region || 'us-east-1',
+        startUrl: credentials.startUrl,
+        authMethod: credentials.authMethod,
+        provider: credentials.provider,
+        profileArn: account.profileArn
+      }
+
+      let success = true
+      let errorMsg = ''
+      const target = switchTarget || 'ide'
+      if (target === 'ide' || target === 'both') {
+        const result = await window.api.switchAccount(idePayload)
+        if (!result.success) {
+          success = false
+          errorMsg = result.error || ''
+        }
+      }
+      if (target === 'cli' || target === 'both') {
+        const result = await window.api.switchAccountCli(cliPayload)
+        if (!result.success && target === 'cli') {
+          success = false
+          errorMsg = result.error || ''
+        }
+      }
+
+      if (success) {
+        setActiveAccount(account.id)
+      } else {
+        alert(isEn ? `Switch failed: ${errorMsg}` : `切换失败：${errorMsg}`)
+      }
+    },
+    [account, isEn, setActiveAccount]
+  )
+
+  const handleRefresh = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (isRefreshing) return
+      setIsRefreshing(true)
+      try {
+        await refreshAccountToken(account.id)
+        await checkAccountStatus(account.id)
+      } finally {
+        setIsRefreshing(false)
+      }
+    },
+    [account.id, isRefreshing, refreshAccountToken, checkAccountStatus]
+  )
+
+  const handleDelete = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (
+        !confirm(isEn ? `Delete account "${account.email}"?` : `确定删除账号 "${account.email}"？`)
+      )
+        return
+      removeAccount(account.id)
+    },
+    [account.id, account.email, isEn, removeAccount]
+  )
+
+  const handleLogout = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (
+        !confirm(
+          isEn
+            ? 'Clear local SSO cache and logout from Kiro?'
+            : '清除本地 SSO 缓存并退出 Kiro 登录？'
+        )
+      )
+        return
+      const result = await window.api.logoutAccount()
+      if (result.success) {
+        setActiveAccount(null)
+      } else {
+        alert(isEn ? `Logout failed: ${result.error}` : `退出失败：${result.error}`)
+      }
+    },
+    [isEn, setActiveAccount]
+  )
+
+  const handleClearSuspended = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (isClearingSuspended) return
+      setIsClearingSuspended(true)
+      try {
+        const result = await window.api.proxyClearAccountSuspended(account.id)
+        if (result.success) {
+          updateAccountStatus(account.id, 'active', undefined)
+        }
+      } finally {
+        setIsClearingSuspended(false)
+      }
+    },
+    [account.id, isClearingSuspended, updateAccountStatus]
+  )
+
+  const handleCopyEmail = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      const text = account.email || account.userId || ''
+      if (text) {
+        navigator.clipboard.writeText(text)
+        setEmailCopied(true)
+        setTimeout(() => setEmailCopied(false), 1500)
+      }
+    },
+    [account.email, account.userId]
+  )
 
   // ============ 渲染 ============
 
@@ -248,7 +285,11 @@ function AccountListRowComponent({
         'group relative flex items-center gap-3 pl-3 pr-3 py-2.5 rounded-xl border bg-solid-card transition-all duration-300 cursor-pointer overflow-hidden',
         'hover:shadow-md',
         account.isActive && 'active-glow-border border-transparent',
-        !account.isActive && !isUnauthorized && tagColors.length === 0 && !isSelected && 'border-border'
+        !account.isActive &&
+          !isUnauthorized &&
+          tagColors.length === 0 &&
+          !isSelected &&
+          'border-border'
       )}
       style={rowStyle}
       onClick={() => toggleSelection(account.id)}
@@ -266,7 +307,10 @@ function AccountListRowComponent({
             ? 'bg-primary border-primary text-primary-foreground'
             : 'border-muted-foreground/30 hover:border-primary'
         )}
-        onClick={(e) => { e.stopPropagation(); toggleSelection(account.id) }}
+        onClick={(e) => {
+          e.stopPropagation()
+          toggleSelection(account.id)
+        }}
       >
         {isSelected && <Check className="h-3 w-3" />}
       </div>
@@ -303,7 +347,7 @@ function AccountListRowComponent({
               {accountGroup.name}
             </span>
           )}
-          {accountTags.slice(0, 4).map(tag => {
+          {accountTags.slice(0, 4).map((tag) => {
             const tagColor = toRgba(tag.color)
             return (
               <span
@@ -327,7 +371,10 @@ function AccountListRowComponent({
 
           {/* 错误信息（非封禁，因为封禁已用红色徽章显示） */}
           {account.lastError && !isUnauthorized && (
-            <span className="text-destructive truncate flex-1 min-w-0 italic" title={account.lastError}>
+            <span
+              className="text-destructive truncate flex-1 min-w-0 italic"
+              title={account.lastError}
+            >
               {account.lastError}
             </span>
           )}
@@ -360,7 +407,10 @@ function AccountListRowComponent({
           {isUnauthorized ? (
             <span
               className="cursor-pointer hover:underline"
-              onClick={(e) => { e.stopPropagation(); onShowDetail() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onShowDetail()
+              }}
             >
               {isEn ? 'Banned' : '已封禁'}
             </span>
@@ -400,10 +450,13 @@ function AccountListRowComponent({
             title={`${isEn ? 'Bound proxy:' : '绑定代理：'} ${boundProxy.host}:${boundProxy.port}${boundProxy.label ? ` (${boundProxy.label})` : ''}\n${isEn ? 'Click to unbind' : '点击解绑'}`}
             onClick={(e) => {
               e.stopPropagation()
-              if (confirm(isEn
-                ? `Unbind ${account.email} from ${boundProxy.host}:${boundProxy.port}?`
-                : `解绑 ${account.email} 与 ${boundProxy.host}:${boundProxy.port}？`
-              )) {
+              if (
+                confirm(
+                  isEn
+                    ? `Unbind ${account.email} from ${boundProxy.host}:${boundProxy.port}?`
+                    : `解绑 ${account.email} 与 ${boundProxy.host}:${boundProxy.port}？`
+                )
+              ) {
                 unbindAccountFromProxy(account.id)
               }
             }}
@@ -434,10 +487,12 @@ function AccountListRowComponent({
       <div className="flex-shrink-0 w-40 flex flex-col gap-0.5 px-2">
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-muted-foreground">{isEn ? 'Usage' : '使用量'}</span>
-          <span className={cn(
-            'font-mono font-medium tabular-nums',
-            isCritical ? 'text-destructive' : isHighUsage ? 'text-warning' : 'text-foreground'
-          )}>
+          <span
+            className={cn(
+              'font-mono font-medium tabular-nums',
+              isCritical ? 'text-destructive' : isHighUsage ? 'text-warning' : 'text-foreground'
+            )}
+          >
             {percentUsed.toFixed(usagePrecision ? 2 : 0)}%
             {isCritical && (
               <span className="ml-1 text-[9px] text-destructive font-semibold">
@@ -451,15 +506,24 @@ function AccountListRowComponent({
             const planRatioPct = (100 / percentUsed) * 100
             return (
               <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-foreground/10">
-                <div className="absolute inset-y-0 left-0 bg-warning transition-all duration-300" style={{ width: `${planRatioPct}%` }} />
-                <div className="absolute inset-y-0 right-0 bg-destructive transition-all duration-300" style={{ left: `${planRatioPct}%` }} />
+                <div
+                  className="absolute inset-y-0 left-0 bg-warning transition-all duration-300"
+                  style={{ width: `${planRatioPct}%` }}
+                />
+                <div
+                  className="absolute inset-y-0 right-0 bg-destructive transition-all duration-300"
+                  style={{ left: `${planRatioPct}%` }}
+                />
               </div>
             )
           }
           return (
             <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-foreground/10">
               <div
-                className={cn('absolute inset-y-0 left-0 transition-all duration-300', isHighUsage ? 'bg-warning' : 'bg-primary')}
+                className={cn(
+                  'absolute inset-y-0 left-0 transition-all duration-300',
+                  isHighUsage ? 'bg-warning' : 'bg-primary'
+                )}
                 style={{ width: `${Math.min(percentUsed, 100)}%` }}
               />
             </div>
@@ -476,22 +540,34 @@ function AccountListRowComponent({
 
       {/* === 时间信息区 === */}
       <div className="flex-shrink-0 hidden lg:flex flex-col leading-tight gap-0.5 text-[10px] text-muted-foreground w-28">
-        <div className="flex items-center gap-1" title={isEn ? 'Subscription days left' : '订阅剩余天数'}>
+        <div
+          className="flex items-center gap-1"
+          title={isEn ? 'Subscription days left' : '订阅剩余天数'}
+        >
           <Clock className="h-3 w-3" />
           <span className={isExpiringSoon ? 'text-warning font-medium' : ''}>
-            {daysRemaining !== undefined ? (isEn ? `${daysRemaining}d` : `${daysRemaining}天`) : '-'}
+            {daysRemaining !== undefined
+              ? isEn
+                ? `${daysRemaining}d`
+                : `${daysRemaining}天`
+              : '-'}
           </span>
         </div>
         <div
           className="flex items-center gap-1"
-          title={account.credentials.expiresAt
-            ? new Date(account.credentials.expiresAt).toLocaleString(isEn ? 'en-US' : 'zh-CN')
-            : (isEn ? 'Unknown' : '未知')
+          title={
+            account.credentials.expiresAt
+              ? new Date(account.credentials.expiresAt).toLocaleString(isEn ? 'en-US' : 'zh-CN')
+              : isEn
+                ? 'Unknown'
+                : '未知'
           }
         >
           <KeyRound className="h-3 w-3" />
           <span className={isTokenExpiringSoon ? 'text-destructive font-medium' : ''}>
-            {account.credentials.expiresAt ? formatTokenExpiry(account.credentials.expiresAt, isEn) : '-'}
+            {account.credentials.expiresAt
+              ? formatTokenExpiry(account.credentials.expiresAt, isEn)
+              : '-'}
           </span>
         </div>
       </div>
@@ -508,7 +584,11 @@ function AccountListRowComponent({
               disabled={isClearingSuspended}
               title={isEn ? 'Reset Suspended' : '重置封禁状态'}
             >
-              {isClearingSuspended ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              {isClearingSuspended ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
             </Button>
             <a
               href="https://support.aws.amazon.com/#/contacts/kiro"
@@ -550,7 +630,10 @@ function AccountListRowComponent({
           size="icon"
           variant="ghost"
           className="h-7 w-7 text-muted-foreground hover:text-foreground"
-          onClick={(e) => { e.stopPropagation(); onShowDetail() }}
+          onClick={(e) => {
+            e.stopPropagation()
+            onShowDetail()
+          }}
           title={isEn ? 'Details' : '详情'}
         >
           <Info className="h-3.5 w-3.5" />
@@ -560,7 +643,10 @@ function AccountListRowComponent({
           size="icon"
           variant="ghost"
           className="h-7 w-7 text-muted-foreground hover:text-foreground"
-          onClick={(e) => { e.stopPropagation(); onEdit() }}
+          onClick={(e) => {
+            e.stopPropagation()
+            onEdit()
+          }}
           title={isEn ? 'Edit' : '编辑'}
         >
           <Edit className="h-3.5 w-3.5" />

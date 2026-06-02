@@ -48,21 +48,28 @@ export function McpServerEditor({ serverName, server, onClose, onSaved }: McpSer
     try {
       const serverConfig: McpServer = {
         command: command.trim(),
-        args: args.filter(a => a.trim()),
-        env: envVars.reduce((acc, { key, value }) => {
-          if (key.trim()) {
-            acc[key.trim()] = value
-          }
-          return acc
-        }, {} as Record<string, string>)
+        args: args.filter((a) => a.trim()),
+        env: envVars.reduce(
+          (acc, { key, value }) => {
+            if (key.trim()) {
+              acc[key.trim()] = value
+            }
+            return acc
+          },
+          {} as Record<string, string>
+        )
       }
 
       // 如果没有 args 或 env，不包含这些字段
       if (serverConfig.args?.length === 0) delete serverConfig.args
       if (Object.keys(serverConfig.env || {}).length === 0) delete serverConfig.env
 
-      const result = await window.api.saveMcpServer(name.trim(), serverConfig, isEdit ? serverName : undefined)
-      
+      const result = await window.api.saveMcpServer(
+        name.trim(),
+        serverConfig,
+        isEdit ? serverName : undefined
+      )
+
       if (result.success) {
         onSaved()
         onClose()
@@ -104,29 +111,34 @@ export function McpServerEditor({ serverName, server, onClose, onSaved }: McpSer
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div 
-        className="absolute inset-0 bg-black/50"
-        onClick={onClose}
-      />
-      
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+
       <div className="relative bg-background rounded-lg shadow-xl w-[90vw] max-w-lg max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b">
-          <h2 className="font-semibold">{isEdit ? (isEn ? 'Edit MCP Server' : '编辑 MCP 服务器') : (isEn ? 'Add MCP Server' : '添加 MCP 服务器')}</h2>
+          <h2 className="font-semibold">
+            {isEdit
+              ? isEn
+                ? 'Edit MCP Server'
+                : '编辑 MCP 服务器'
+              : isEn
+                ? 'Add MCP Server'
+                : '添加 MCP 服务器'}
+          </h2>
           <Button variant="ghost" size="sm" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
 
         {error && (
-          <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm">
-            {error}
-          </div>
+          <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm">{error}</div>
         )}
 
         <div className="flex-1 p-4 space-y-4 overflow-auto">
           {/* 服务器名称 */}
           <div>
-            <label className="block text-sm font-medium mb-1">{isEn ? 'Server Name' : '服务器名称'}</label>
+            <label className="block text-sm font-medium mb-1">
+              {isEn ? 'Server Name' : '服务器名称'}
+            </label>
             <input
               type="text"
               value={name}
@@ -179,7 +191,9 @@ export function McpServerEditor({ serverName, server, onClose, onSaved }: McpSer
 
           {/* 环境变量 */}
           <div>
-            <label className="block text-sm font-medium mb-1">{isEn ? 'Environment Variables' : '环境变量'}</label>
+            <label className="block text-sm font-medium mb-1">
+              {isEn ? 'Environment Variables' : '环境变量'}
+            </label>
             <div className="space-y-2">
               {envVars.map((env, index) => (
                 <div key={index} className="flex gap-2">
@@ -211,10 +225,12 @@ export function McpServerEditor({ serverName, server, onClose, onSaved }: McpSer
         </div>
 
         <div className="flex justify-end gap-2 px-4 py-3 border-t">
-          <Button variant="outline" onClick={onClose}>{isEn ? 'Cancel' : '取消'}</Button>
+          <Button variant="outline" onClick={onClose}>
+            {isEn ? 'Cancel' : '取消'}
+          </Button>
           <Button onClick={handleSave} disabled={saving}>
             <Save className="h-4 w-4 mr-1" />
-            {saving ? (isEn ? 'Saving...' : '保存中...') : (isEn ? 'Save' : '保存')}
+            {saving ? (isEn ? 'Saving...' : '保存中...') : isEn ? 'Save' : '保存'}
           </Button>
         </div>
       </div>
@@ -222,5 +238,3 @@ export function McpServerEditor({ serverName, server, onClose, onSaved }: McpSer
     document.body
   )
 }
-
-

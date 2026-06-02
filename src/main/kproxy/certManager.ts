@@ -43,7 +43,7 @@ export class CertManager {
       try {
         const certPem = fs.readFileSync(certPath, 'utf8')
         const keyPem = fs.readFileSync(keyPath, 'utf8')
-        
+
         this.caCert = forge.pki.certificateFromPem(certPem)
         this.caKey = forge.pki.privateKeyFromPem(keyPem)
 
@@ -72,12 +72,12 @@ export class CertManager {
 
     // 生成 RSA 密钥对
     const keys = forge.pki.rsa.generateKeyPair(2048)
-    
+
     // 创建证书
     const cert = forge.pki.createCertificate()
     cert.publicKey = keys.publicKey
     cert.serialNumber = this.generateSerialNumber()
-    
+
     // 设置有效期（10年）
     cert.validity.notBefore = new Date()
     cert.validity.notAfter = new Date()
@@ -145,12 +145,12 @@ export class CertManager {
 
     // 生成密钥对
     const keys = forge.pki.rsa.generateKeyPair(2048)
-    
+
     // 创建证书
     const cert = forge.pki.createCertificate()
     cert.publicKey = keys.publicKey
     cert.serialNumber = this.generateSerialNumber()
-    
+
     // 设置有效期（1年）
     cert.validity.notBefore = new Date()
     cert.validity.notAfter = new Date()
@@ -233,9 +233,15 @@ export class CertManager {
   /**
    * 提取证书信息
    */
-  private extractCertInfo(certPath: string, keyPath: string, certPem: string, keyPem: string): CACertInfo {
+  private extractCertInfo(
+    certPath: string,
+    keyPath: string,
+    certPem: string,
+    keyPem: string
+  ): CACertInfo {
     const cert = forge.pki.certificateFromPem(certPem)
-    const fingerprint = forge.md.sha256.create()
+    const fingerprint = forge.md.sha256
+      .create()
       .update(forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes())
       .digest()
       .toHex()

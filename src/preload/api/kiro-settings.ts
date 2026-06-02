@@ -17,11 +17,15 @@ export const kiroSettingsApi = {
     return ipcRenderer.invoke('get-kiro-available-models')
   },
 
-  saveKiroSettings: (settings: Record<string, unknown>): Promise<{ success: boolean; error?: string }> => {
+  saveKiroSettings: (
+    settings: Record<string, unknown>
+  ): Promise<{ success: boolean; error?: string }> => {
     return ipcRenderer.invoke('save-kiro-settings', settings)
   },
 
-  openKiroMcpConfig: (type: 'user' | 'workspace'): Promise<{ success: boolean; error?: string }> => {
+  openKiroMcpConfig: (
+    type: 'user' | 'workspace'
+  ): Promise<{ success: boolean; error?: string }> => {
     return ipcRenderer.invoke('open-kiro-mcp-config', type)
   },
 
@@ -41,11 +45,16 @@ export const kiroSettingsApi = {
     return ipcRenderer.invoke('create-kiro-default-rules')
   },
 
-  readKiroSteeringFile: (filename: string): Promise<{ success: boolean; content?: string; error?: string }> => {
+  readKiroSteeringFile: (
+    filename: string
+  ): Promise<{ success: boolean; content?: string; error?: string }> => {
     return ipcRenderer.invoke('read-kiro-steering-file', filename)
   },
 
-  saveKiroSteeringFile: (filename: string, content: string): Promise<{ success: boolean; error?: string }> => {
+  saveKiroSteeringFile: (
+    filename: string,
+    content: string
+  ): Promise<{ success: boolean; error?: string }> => {
     return ipcRenderer.invoke('save-kiro-steering-file', filename, content)
   },
 
@@ -53,7 +62,11 @@ export const kiroSettingsApi = {
     return ipcRenderer.invoke('delete-kiro-steering-file', filename)
   },
 
-  saveMcpServer: (name: string, config: { command: string; args?: string[]; env?: Record<string, string> }, oldName?: string): Promise<{ success: boolean; error?: string }> => {
+  saveMcpServer: (
+    name: string,
+    config: { command: string; args?: string[]; env?: Record<string, string> },
+    oldName?: string
+  ): Promise<{ success: boolean; error?: string }> => {
     return ipcRenderer.invoke('save-mcp-server', name, config, oldName)
   },
 

@@ -9,6 +9,9 @@
 
 - Install deps: `npm install`
 - Dev app: `npm run dev`
+- Build standalone local admin server: `npm run serve:build`
+- Smoke test standalone local admin server: `npm run serve:smoke`
+- Start standalone local admin server: `npm run serve`
 - Preview built app: `npm run start`
 - Lint: `npm run lint`
 - Typecheck all: `npm run typecheck`
@@ -22,6 +25,7 @@
 
 - There is no JS unit test runner in `package.json`; do not claim tests passed unless you actually ran lint/typecheck/build or the manual scripts below.
 - Normal code verification is `npm run lint` plus the narrowest relevant typecheck. `npm run build` already runs `npm run typecheck` first.
+- Standalone service verification is `npm run serve:smoke`; it builds `out/server/standalone.mjs`, starts the local service, checks `/api/health`, authorized `/api/proxy/status`, authorized `/api/kiro-local/active-account`, authorized `/api/registration/status`, authorized `/api/machine-id/os`, authorized `/api/kiro-settings`, authorized `/api/kproxy/status`, authorized `/api/diagnostics/http-probe`, and authorized `/api/subscriptions/health`, then exits.
 - `npm run test:e2e` and `npm run test:e2e:only` exist, but they are full integration tests against a running local proxy/app and at least one working account. The old E2E document was removed during handoff cleanup; inspect the runner path and `docs/LOCAL-BROWSER-MIGRATION-PLAN.md` before using them.
 - `test/test_usage_api.py` and `test/test_kiro_apis.py` are live integration probes against external Kiro endpoints, not hermetic tests. They also contain hard-coded tokens in the repo, so avoid pasting them into output.
 - `test/proxy-test.html` is a manual browser page for proxy checks.
@@ -29,6 +33,8 @@
 ## Architecture
 
 - `src/main/index.ts` is the real integration hub. It still owns app lifecycle, IPC handlers, Kiro API calls, proxy startup, K-Proxy startup, machine ID operations, and debounced `electron-store` writes. Auto-update, tray, global shortcut, and custom window IPC have already been removed.
+- `src/server/standalone.ts` is the pure Node local-admin entrypoint. Keep `src/server/*` free of Electron-only dependencies unless the dependency is injected by `src/main/index.ts`.
+- `/api/accounts/*`, `/api/auth/*`, `/api/proxy/*`, `/api/kiro-local/*`, `/api/registration/*`, `/api/machine-id/*`, `/api/kiro-settings/*`, `/api/kproxy/*`, `/api/diagnostics/*`, and `/api/subscriptions/*` controllers are already in `src/server/http/controllers/*`. Account status checks now live in `AccountService.checkAccountStatus()` and are exposed as `POST /api/accounts/check-status`; Kiro IDE/CLI local credential operations now live in `KiroLocalService`; registration task orchestration now lives in `RegistrationService`; machine-id operations now live in `MachineIdService`; Kiro settings, MCP, and Steering operations now live in `KiroSettingsService`; K-Proxy MITM management now lives in `KProxyManagementService`; one-click diagnostics and proxy-pool validation now live in `DiagnosticsService`; subscription plans, subscription URLs, and overage preferences now live in `SubscriptionService`. The proxy controller wraps the legacy `src/main/proxy/*` core through `ProxyService`; the K-Proxy controller wraps the separate legacy `src/main/kproxy/*` MITM core through `KProxyManagementService`; do not merge those two proxy systems.
 - `src/preload/index.ts` exposes the renderer bridge as `window.api`. Renderer features that need desktop capabilities usually require a matching IPC handler in `src/main/index.ts` and a bridge method here.
 - `src/renderer/src/App.tsx` wires page navigation, startup loading, and background refresh/check listeners. Tray listeners have already been removed.
 - `src/renderer/src/store/accounts.ts` is the main renderer-side domain store for accounts, groups, tags, auto-refresh, auto-switch, proxy settings, theme/language, machine ID bindings, import/export, and persistence hooks.
@@ -42,4 +48,4 @@
 
 ## Existing Instructions
 
-- `docs/LOCAL-BROWSER-MIGRATION-PLAN.md` is the current handoff source of truth. Keep this file, `CLAUDE.md`, and that plan aligned if commands or architecture change.
+- `docs/LOCAL-BROWSER-MIGRATION-PLAN.md` is the current handoff source of truth. Keep this file and this guide aligned if commands or architecture change.

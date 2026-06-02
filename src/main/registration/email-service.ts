@@ -3,13 +3,23 @@ import { fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'und
 import { getSystemProxy, safeCreateProxyAgent } from '../proxy/systemProxy'
 
 function getRegistrationProxyUrl(): string | undefined {
-  return process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy || getSystemProxy() || undefined
+  return (
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    getSystemProxy() ||
+    undefined
+  )
 }
 
 async function proxyFetch(url: string, options?: RequestInit): Promise<Response> {
   const agent = safeCreateProxyAgent(getRegistrationProxyUrl())
   if (agent) {
-    return await undiciFetch(url, { ...options, dispatcher: agent } as UndiciRequestInit) as unknown as Response
+    return (await undiciFetch(url, {
+      ...options,
+      dispatcher: agent
+    } as UndiciRequestInit)) as unknown as Response
   }
   return await fetch(url, options)
 }
@@ -73,7 +83,11 @@ export class MoEmailService implements TempEmailService {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`
 
-    const resp = await proxyFetch(url, { method: 'POST', headers, signal: AbortSignal.timeout(30000) })
+    const resp = await proxyFetch(url, {
+      method: 'POST',
+      headers,
+      signal: AbortSignal.timeout(30000)
+    })
     const data = (await resp.json()) as Record<string, unknown>
 
     const addr =
@@ -144,20 +158,119 @@ export class MoEmailService implements TempEmailService {
 // ============ TempMail.Plus + 自建域名 ============
 
 const FIRST_NAMES = [
-  'james', 'john', 'robert', 'michael', 'david', 'william', 'richard', 'joseph', 'thomas', 'charles',
-  'mary', 'patricia', 'jennifer', 'linda', 'elizabeth', 'barbara', 'susan', 'jessica', 'sarah', 'karen',
-  'daniel', 'matthew', 'anthony', 'mark', 'steven', 'paul', 'andrew', 'joshua', 'kenneth', 'christopher',
-  'nancy', 'betty', 'margaret', 'sandra', 'ashley', 'dorothy', 'kimberly', 'emily', 'donna', 'michelle',
-  'ryan', 'kevin', 'brian', 'jason', 'timothy', 'sean', 'nathan', 'brandon', 'adam', 'tyler',
-  'rachel', 'samantha', 'katherine', 'christine', 'stephanie', 'heather', 'lauren', 'rebecca', 'victoria', 'megan'
+  'james',
+  'john',
+  'robert',
+  'michael',
+  'david',
+  'william',
+  'richard',
+  'joseph',
+  'thomas',
+  'charles',
+  'mary',
+  'patricia',
+  'jennifer',
+  'linda',
+  'elizabeth',
+  'barbara',
+  'susan',
+  'jessica',
+  'sarah',
+  'karen',
+  'daniel',
+  'matthew',
+  'anthony',
+  'mark',
+  'steven',
+  'paul',
+  'andrew',
+  'joshua',
+  'kenneth',
+  'christopher',
+  'nancy',
+  'betty',
+  'margaret',
+  'sandra',
+  'ashley',
+  'dorothy',
+  'kimberly',
+  'emily',
+  'donna',
+  'michelle',
+  'ryan',
+  'kevin',
+  'brian',
+  'jason',
+  'timothy',
+  'sean',
+  'nathan',
+  'brandon',
+  'adam',
+  'tyler',
+  'rachel',
+  'samantha',
+  'katherine',
+  'christine',
+  'stephanie',
+  'heather',
+  'lauren',
+  'rebecca',
+  'victoria',
+  'megan'
 ]
 
 const LAST_NAMES = [
-  'smith', 'johnson', 'williams', 'brown', 'jones', 'garcia', 'miller', 'davis', 'rodriguez', 'martinez',
-  'hernandez', 'lopez', 'gonzalez', 'wilson', 'anderson', 'thomas', 'taylor', 'moore', 'jackson', 'martin',
-  'lee', 'perez', 'thompson', 'white', 'harris', 'sanchez', 'clark', 'ramirez', 'lewis', 'robinson',
-  'walker', 'young', 'allen', 'king', 'wright', 'scott', 'torres', 'nguyen', 'hill', 'flores',
-  'green', 'adams', 'nelson', 'baker', 'hall', 'rivera', 'campbell', 'mitchell', 'carter', 'roberts'
+  'smith',
+  'johnson',
+  'williams',
+  'brown',
+  'jones',
+  'garcia',
+  'miller',
+  'davis',
+  'rodriguez',
+  'martinez',
+  'hernandez',
+  'lopez',
+  'gonzalez',
+  'wilson',
+  'anderson',
+  'thomas',
+  'taylor',
+  'moore',
+  'jackson',
+  'martin',
+  'lee',
+  'perez',
+  'thompson',
+  'white',
+  'harris',
+  'sanchez',
+  'clark',
+  'ramirez',
+  'lewis',
+  'robinson',
+  'walker',
+  'young',
+  'allen',
+  'king',
+  'wright',
+  'scott',
+  'torres',
+  'nguyen',
+  'hill',
+  'flores',
+  'green',
+  'adams',
+  'nelson',
+  'baker',
+  'hall',
+  'rivera',
+  'campbell',
+  'mitchell',
+  'carter',
+  'roberts'
 ]
 
 function randomEmailPrefix(): string {
@@ -173,7 +286,7 @@ function randomEmailPrefix(): string {
 export class TempMailPlusService implements TempEmailService {
   private static readonly BASE_URL = 'https://tempmail.plus/api'
 
-  private readonly tmEmail: string   // tempmail.plus 用户名（不含 @mailto.plus）
+  private readonly tmEmail: string // tempmail.plus 用户名（不含 @mailto.plus）
   private readonly epin: string
   private readonly domain: string
   private address = ''
@@ -186,12 +299,13 @@ export class TempMailPlusService implements TempEmailService {
 
   private get headers(): Record<string, string> {
     return {
-      'accept': 'application/json, text/javascript, */*; q=0.01',
+      accept: 'application/json, text/javascript, */*; q=0.01',
       'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+      'user-agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
       'x-requested-with': 'XMLHttpRequest',
-      'Referer': 'https://tempmail.plus/zh/',
-      'cookie': `email=${encodeURIComponent(this.fullEmail)}`
+      Referer: 'https://tempmail.plus/zh/',
+      cookie: `email=${encodeURIComponent(this.fullEmail)}`
     }
   }
 
@@ -257,7 +371,10 @@ export class TempMailPlusService implements TempEmailService {
 
   private async fetchMailList(): Promise<Array<Record<string, unknown>>> {
     const url = `${TempMailPlusService.BASE_URL}/mails?email=${encodeURIComponent(this.fullEmail)}&first_id=0&epin=${encodeURIComponent(this.epin)}`
-    const resp = await proxyFetch(url, { headers: this.headers, signal: AbortSignal.timeout(15000) })
+    const resp = await proxyFetch(url, {
+      headers: this.headers,
+      signal: AbortSignal.timeout(15000)
+    })
     const data = (await resp.json()) as Record<string, unknown>
     if (!data.result) return []
     return (data.mail_list as Array<Record<string, unknown>>) || []
@@ -265,14 +382,20 @@ export class TempMailPlusService implements TempEmailService {
 
   private async fetchMailDetail(mailId: number): Promise<Record<string, unknown> | null> {
     const url = `${TempMailPlusService.BASE_URL}/mails/${mailId}?email=${encodeURIComponent(this.fullEmail)}&epin=${encodeURIComponent(this.epin)}`
-    const resp = await proxyFetch(url, { headers: this.headers, signal: AbortSignal.timeout(15000) })
+    const resp = await proxyFetch(url, {
+      headers: this.headers,
+      signal: AbortSignal.timeout(15000)
+    })
     const data = (await resp.json()) as Record<string, unknown>
     return data.result ? data : null
   }
 
   private async deleteMail(mailId: number): Promise<void> {
     const url = `${TempMailPlusService.BASE_URL}/mails/${mailId}`
-    const headers = { ...this.headers, 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8' }
+    const headers = {
+      ...this.headers,
+      'content-type': 'application/x-www-form-urlencoded; charset=UTF-8'
+    }
     const body = `email=${encodeURIComponent(this.fullEmail)}&epin=${encodeURIComponent(this.epin)}`
     try {
       await proxyFetch(url, { method: 'DELETE', headers, body, signal: AbortSignal.timeout(10000) })
@@ -342,12 +465,14 @@ export async function refreshOutlookToken(acc: OutlookAccount): Promise<string> 
     scope: 'https://outlook.office.com/IMAP.AccessAsUser.All offline_access'
   })
 
-  const resp = await proxyFetch(
-    'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
-    { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() }
-  )
+  const resp = await proxyFetch('https://login.microsoftonline.com/consumers/oauth2/v2.0/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString()
+  })
   const data = (await resp.json()) as Record<string, unknown>
-  if (resp.status !== 200) throw new Error(`刷新失败 ${resp.status}: ${JSON.stringify(data).slice(0, 300)}`)
+  if (resp.status !== 200)
+    throw new Error(`刷新失败 ${resp.status}: ${JSON.stringify(data).slice(0, 300)}`)
   const token = data.access_token as string
   if (!token) throw new Error('响应中无 access_token')
   return token
@@ -365,17 +490,24 @@ class IMAPClient {
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const socket = tls.connect(993, 'outlook.office365.com', { servername: 'outlook.office365.com' })
+      const socket = tls.connect(993, 'outlook.office365.com', {
+        servername: 'outlook.office365.com'
+      })
       const timer = setTimeout(() => {
         socket.destroy()
         reject(new Error('连接超时'))
       }, 15000)
 
-      socket.once('error', (err) => { clearTimeout(timer); reject(err) })
+      socket.once('error', (err) => {
+        clearTimeout(timer)
+        reject(err)
+      })
       socket.once('secureConnect', () => {
         clearTimeout(timer)
         this.socket = socket
-        this.readLine().then(() => resolve()).catch(reject)
+        this.readLine()
+          .then(() => resolve())
+          .catch(reject)
       })
     })
   }
@@ -464,7 +596,10 @@ class IMAPClient {
     const rawLines: string[] = []
     let inBody = false
     for (const line of lines) {
-      if (line.includes('FETCH')) { inBody = true; continue }
+      if (line.includes('FETCH')) {
+        inBody = true
+        continue
+      }
       if (line === ')') continue
       if (inBody) rawLines.push(line)
     }
@@ -480,7 +615,9 @@ class IMAPClient {
         const b64 = content.replace(/[\s]/g, '')
         try {
           decoded += Buffer.from(b64, 'base64').toString() + ' '
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
     if (decoded) return decoded
@@ -496,7 +633,11 @@ class IMAPClient {
 
   close(): void {
     if (this.socket) {
-      try { this.socket.write('A999 LOGOUT\r\n') } catch { /* ignore */ }
+      try {
+        this.socket.write('A999 LOGOUT\r\n')
+      } catch {
+        /* ignore */
+      }
       this.socket.destroy()
       this.socket = null
     }
@@ -534,7 +675,8 @@ export async function waitForOTP(
       const total = await client.selectInbox()
 
       if (total <= beforeCount) {
-        if (attempt % 5 === 0) console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] 暂无新邮件 (当前${total}封)...`)
+        if (attempt % 5 === 0)
+          console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] 暂无新邮件 (当前${total}封)...`)
         await sleep(interval * 1000)
         continue
       }
@@ -547,13 +689,20 @@ export async function waitForOTP(
             console.log(`[Outlook IMAP] 获取到验证码: ${code}`)
             return code
           }
-        } catch { /* continue */ }
+        } catch {
+          /* continue */
+        }
       }
 
-      if (attempt % 5 === 0) console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] 新邮件中未找到验证码...`)
+      if (attempt % 5 === 0)
+        console.log(`[Outlook IMAP] [${attempt}/${maxRetries}] 新邮件中未找到验证码...`)
     } catch (err) {
       if (attempt % 5 === 0) console.log(`[Outlook IMAP] 连接失败:`, err)
-      try { accessToken = await refreshOutlookToken(acc) } catch { /* ignore */ }
+      try {
+        accessToken = await refreshOutlookToken(acc)
+      } catch {
+        /* ignore */
+      }
     } finally {
       client?.close()
     }

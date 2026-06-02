@@ -2,6 +2,8 @@
 // 含 SOCKS5/SOCKS4 代理支持（通过 socks 包 + undici Agent.connect 钩子）
 
 import { ProxyAgent, Agent, type Dispatcher } from 'undici'
+import { execSync } from 'child_process'
+import { SocksClient } from 'socks'
 import * as tls from 'tls'
 
 let _cachedSystemProxy: string | null = null
@@ -69,7 +71,6 @@ export function getSystemProxy(): string | null {
   }
   try {
     if (process.platform === 'win32') {
-      const { execSync } = require('child_process')
       const result = execSync(
         'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable',
         { encoding: 'utf8', timeout: 3000, windowsHide: true }
@@ -88,7 +89,6 @@ export function getSystemProxy(): string | null {
         }
       }
     } else if (process.platform === 'darwin') {
-      const { execSync } = require('child_process')
       const result = execSync('scutil --proxy', { encoding: 'utf8', timeout: 3000 })
       // 优先 HTTPS 代理，回退到 HTTP 代理（仅 undici 支持的 http/https 协议）
       const httpsEnabled = /HTTPSEnable\s*:\s*1/.test(result)
@@ -115,7 +115,9 @@ export function getSystemProxy(): string | null {
       }
       // macOS 仅配 SOCKS 时 undici 不支持，静默回退直连（safeCreateProxyAgent 也会兜底）
     }
-  } catch { /* 检测失败静默回退直连 */ }
+  } catch {
+    /* 检测失败静默回退直连 */
+  }
   _cachedSystemProxy = null
   _systemProxyCacheTime = now
   return null
@@ -131,9 +133,7 @@ export function getSystemProxy(): string | null {
  * URL 无效或协议无法支持时返回 undefined，让调用方回退直连，
  * 而不会让异常向上传播阻塞业务流程。
  */
-export function safeCreateProxyAgent(
-  proxyUrl: string | null | undefined
-): Dispatcher | undefined {
+export function safeCreateProxyAgent(proxyUrl: string | null | undefined): Dispatcher | undefined {
   if (!proxyUrl) return undefined
 
   // 校验 URL
@@ -158,7 +158,12 @@ export function safeCreateProxyAgent(
   }
 
   // SOCKS 走自定义 connect
-  if (protocol === 'socks5:' || protocol === 'socks5h:' || protocol === 'socks4:' || protocol === 'socks4a:') {
+  if (
+    protocol === 'socks5:' ||
+    protocol === 'socks5h:' ||
+    protocol === 'socks4:' ||
+    protocol === 'socks4a:'
+  ) {
     try {
       return createSocksDispatcher(u)
     } catch (err) {
@@ -190,15 +195,6 @@ function createSocksDispatcher(u: URL): Agent {
     connect: ((options: any, callback: any): void => {
       const targetHost = options.hostname || options.host || ''
       const targetPort = Number(options.port) || (options.protocol === 'https:' ? 443 : 80)
-
-      // 动态导入 socks 库
-      let SocksClient: typeof import('socks').SocksClient
-      try {
-        SocksClient = require('socks').SocksClient
-      } catch (err) {
-        callback(err as Error, null)
-        return
-      }
 
       void SocksClient.createConnection({
         proxy: { host: proxyHost, port: proxyPort, type, userId, password },

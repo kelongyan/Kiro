@@ -1,17 +1,53 @@
 import { useState, useMemo } from 'react'
 import {
-  Bell, Plus, Trash2, Send, Power, PowerOff, CheckCircle2, XCircle,
-  Loader2, Edit2, MessageSquare
+  Bell,
+  Plus,
+  Trash2,
+  Send,
+  Power,
+  PowerOff,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Edit2,
+  MessageSquare
 } from 'lucide-react'
-import { useWebhookStore, ALL_WEBHOOK_EVENTS, type WebhookEntry, type WebhookKind } from '@/store/webhooks'
+import {
+  useWebhookStore,
+  ALL_WEBHOOK_EVENTS,
+  type WebhookEntry,
+  type WebhookKind
+} from '@/store/webhooks'
 import { useTranslation } from '@/hooks/useTranslation'
-import { Card, CardContent, CardHeader, CardTitle, Button, Input, Label, Switch, Badge } from '../ui'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Button,
+  Input,
+  Label,
+  Switch,
+  Badge
+} from '../ui'
 import { cn } from '@/lib/utils'
 
 const KIND_OPTIONS: { value: WebhookKind; label: string; placeholder: string }[] = [
-  { value: 'dingtalk', label: '钉钉', placeholder: 'https://oapi.dingtalk.com/robot/send?access_token=xxx' },
-  { value: 'wechat-work', label: '企业微信', placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' },
-  { value: 'feishu', label: '飞书', placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx' },
+  {
+    value: 'dingtalk',
+    label: '钉钉',
+    placeholder: 'https://oapi.dingtalk.com/robot/send?access_token=xxx'
+  },
+  {
+    value: 'wechat-work',
+    label: '企业微信',
+    placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx'
+  },
+  {
+    value: 'feishu',
+    label: '飞书',
+    placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx'
+  },
   { value: 'telegram', label: 'Telegram', placeholder: 'https://api.telegram.org/bot<token>' },
   { value: 'discord', label: 'Discord', placeholder: 'https://discord.com/api/webhooks/xxx' },
   { value: 'custom', label: '自定义', placeholder: 'https://your-server.com/webhook' }
@@ -20,11 +56,14 @@ const KIND_OPTIONS: { value: WebhookKind; label: string; placeholder: string }[]
 export function WebhooksPage(): React.ReactNode {
   const { t } = useTranslation()
   const isEn = t('common.unknown') === 'Unknown'
-  const { webhooks, addWebhook, updateWebhook, removeWebhook, toggleWebhook, testWebhook } = useWebhookStore()
+  const { webhooks, addWebhook, updateWebhook, removeWebhook, toggleWebhook, testWebhook } =
+    useWebhookStore()
 
   const [editing, setEditing] = useState<Partial<WebhookEntry> | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
-  const [testResult, setTestResult] = useState<Record<string, { success: boolean; error?: string; time: number }>>({})
+  const [testResult, setTestResult] = useState<
+    Record<string, { success: boolean; error?: string; time: number }>
+  >({})
 
   const webhookList = useMemo(() => Array.from(webhooks.values()), [webhooks])
 
@@ -71,8 +110,7 @@ export function WebhooksPage(): React.ReactNode {
             <p className="text-muted-foreground">
               {isEn
                 ? 'Push critical events (batch completed, risk warning, account banned, etc.) to DingTalk / WeCom / Feishu / Telegram / Discord / custom endpoints.'
-                : '把关键事件（批量完成、风控警告、账号封禁等）推送到钉钉/企微/飞书/Telegram/Discord/自定义服务'
-              }
+                : '把关键事件（批量完成、风控警告、账号封禁等）推送到钉钉/企微/飞书/Telegram/Discord/自定义服务'}
             </p>
           </div>
         </div>
@@ -85,7 +123,16 @@ export function WebhooksPage(): React.ReactNode {
             <MessageSquare className="h-4 w-4 text-primary" />
             {isEn ? `Webhooks (${webhookList.length})` : `Webhook 列表 (${webhookList.length})`}
           </CardTitle>
-          <Button size="sm" onClick={() => setEditing({ kind: 'dingtalk', enabled: true, events: ['batch-completed', 'risk-warning', 'account-banned'] })}>
+          <Button
+            size="sm"
+            onClick={() =>
+              setEditing({
+                kind: 'dingtalk',
+                enabled: true,
+                events: ['batch-completed', 'risk-warning', 'account-banned']
+              })
+            }
+          >
             <Plus className="h-4 w-4 mr-1" />
             {isEn ? 'Add Webhook' : '添加 Webhook'}
           </Button>
@@ -98,9 +145,9 @@ export function WebhooksPage(): React.ReactNode {
             </div>
           ) : (
             <div className="space-y-2">
-              {webhookList.map(w => {
+              {webhookList.map((w) => {
                 const result = testResult[w.id]
-                const kindLabel = KIND_OPTIONS.find(o => o.value === w.kind)?.label || w.kind
+                const kindLabel = KIND_OPTIONS.find((o) => o.value === w.kind)?.label || w.kind
                 return (
                   <div
                     key={w.id}
@@ -114,39 +161,56 @@ export function WebhooksPage(): React.ReactNode {
                       className="mt-0.5"
                       title={w.enabled ? '点击停用' : '点击启用'}
                     >
-                      {w.enabled
-                        ? <Power className="h-4 w-4 text-green-500" />
-                        : <PowerOff className="h-4 w-4 text-muted-foreground" />
-                      }
+                      {w.enabled ? (
+                        <Power className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <PowerOff className="h-4 w-4 text-muted-foreground" />
+                      )}
                     </button>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm">
-                          {w.label || kindLabel}
-                        </span>
-                        <Badge variant="outline" className="text-[10px]">{kindLabel}</Badge>
-                        {result && (Date.now() - result.time < 60000) && (
+                        <span className="font-medium text-sm">{w.label || kindLabel}</span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {kindLabel}
+                        </Badge>
+                        {result && Date.now() - result.time < 60000 && (
                           <Badge
                             variant="outline"
                             className={cn(
                               'text-[10px]',
-                              result.success ? 'text-green-600 border-green-200' : 'text-red-600 border-red-200'
+                              result.success
+                                ? 'text-green-600 border-green-200'
+                                : 'text-red-600 border-red-200'
                             )}
                           >
-                            {result.success
-                              ? <><CheckCircle2 className="h-2.5 w-2.5 mr-0.5 inline" /> 测试成功</>
-                              : <><XCircle className="h-2.5 w-2.5 mr-0.5 inline" /> 测试失败</>
-                            }
+                            {result.success ? (
+                              <>
+                                <CheckCircle2 className="h-2.5 w-2.5 mr-0.5 inline" /> 测试成功
+                              </>
+                            ) : (
+                              <>
+                                <XCircle className="h-2.5 w-2.5 mr-0.5 inline" /> 测试失败
+                              </>
+                            )}
                           </Badge>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate" title={w.url}>{w.url}</p>
+                      <p
+                        className="text-xs text-muted-foreground font-mono mt-0.5 truncate"
+                        title={w.url}
+                      >
+                        {w.url}
+                      </p>
                       {w.events.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1.5">
-                          {w.events.map(ev => {
-                            const evLabel = ALL_WEBHOOK_EVENTS.find(e => e.value === ev)?.label || ev
+                          {w.events.map((ev) => {
+                            const evLabel =
+                              ALL_WEBHOOK_EVENTS.find((e) => e.value === ev)?.label || ev
                             return (
-                              <span key={ev} className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                              <span
+                                key={ev}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary"
+                              >
                                 {evLabel}
                               </span>
                             )
@@ -158,11 +222,17 @@ export function WebhooksPage(): React.ReactNode {
                       )}
                     </div>
                     <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => handleTest(w.id)} disabled={testingId === w.id}>
-                        {testingId === w.id
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : <Send className="h-3.5 w-3.5" />
-                        }
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleTest(w.id)}
+                        disabled={testingId === w.id}
+                      >
+                        {testingId === w.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Send className="h-3.5 w-3.5" />
+                        )}
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setEditing({ ...w })}>
                         <Edit2 className="h-3.5 w-3.5" />
@@ -172,7 +242,13 @@ export function WebhooksPage(): React.ReactNode {
                         variant="ghost"
                         className="text-destructive"
                         onClick={() => {
-                          if (confirm(isEn ? `Delete webhook "${w.label || kindLabel}"?` : `删除 Webhook "${w.label || kindLabel}"？`)) {
+                          if (
+                            confirm(
+                              isEn
+                                ? `Delete webhook "${w.label || kindLabel}"?`
+                                : `删除 Webhook "${w.label || kindLabel}"？`
+                            )
+                          ) {
                             removeWebhook(w.id)
                           }
                         }}
@@ -193,14 +269,20 @@ export function WebhooksPage(): React.ReactNode {
         <Card className="border-primary/40 shadow-lg">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">
-              {editing.id ? (isEn ? 'Edit Webhook' : '编辑 Webhook') : (isEn ? 'New Webhook' : '新建 Webhook')}
+              {editing.id
+                ? isEn
+                  ? 'Edit Webhook'
+                  : '编辑 Webhook'
+                : isEn
+                  ? 'New Webhook'
+                  : '新建 Webhook'}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">类型</Label>
               <div className="flex flex-wrap gap-1.5">
-                {KIND_OPTIONS.map(opt => (
+                {KIND_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
                     onClick={() => setEditing({ ...editing, kind: opt.value })}
@@ -232,7 +314,7 @@ export function WebhooksPage(): React.ReactNode {
               <Input
                 value={editing.url || ''}
                 onChange={(e) => setEditing({ ...editing, url: e.target.value })}
-                placeholder={KIND_OPTIONS.find(o => o.value === editing.kind)?.placeholder}
+                placeholder={KIND_OPTIONS.find((o) => o.value === editing.kind)?.placeholder}
                 className="h-8 font-mono text-xs"
               />
             </div>
@@ -251,7 +333,9 @@ export function WebhooksPage(): React.ReactNode {
 
             {editing.kind === 'custom' && (
               <div className="space-y-1">
-                <Label className="text-xs">自定义 JSON 模板（占位符：{`{{title}} {{message}} {{level}} {{icon}}`}）</Label>
+                <Label className="text-xs">
+                  自定义 JSON 模板（占位符：{`{{title}} {{message}} {{level}} {{icon}}`}）
+                </Label>
                 <textarea
                   value={editing.customTemplate || ''}
                   onChange={(e) => setEditing({ ...editing, customTemplate: e.target.value })}
@@ -265,7 +349,7 @@ export function WebhooksPage(): React.ReactNode {
             <div className="space-y-1">
               <Label className="text-xs">订阅事件</Label>
               <div className="flex flex-wrap gap-1.5">
-                {ALL_WEBHOOK_EVENTS.map(ev => {
+                {ALL_WEBHOOK_EVENTS.map((ev) => {
                   const checked = editing.events?.includes(ev.value) ?? false
                   return (
                     <button
@@ -273,7 +357,7 @@ export function WebhooksPage(): React.ReactNode {
                       onClick={() => {
                         const current = editing.events ?? []
                         const next = checked
-                          ? current.filter(e => e !== ev.value)
+                          ? current.filter((e) => e !== ev.value)
                           : [...current, ev.value]
                         setEditing({ ...editing, events: next })
                       }}
@@ -300,7 +384,9 @@ export function WebhooksPage(): React.ReactNode {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>取消</Button>
+              <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>
+                取消
+              </Button>
               <Button size="sm" onClick={handleSave} disabled={!editing.kind || !editing.url}>
                 保存
               </Button>

@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, Button, Toggle, Select } from '../ui'
 import { useTranslation } from '@/hooks/useTranslation'
 import { SteeringEditor, McpServerEditor } from '../kiro'
-import { 
-  FileText, 
-  ChevronDown, 
-  ChevronUp, 
-  Plus, 
-  Trash2, 
+import {
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Trash2,
   RefreshCw,
   ExternalLink,
   FolderOpen,
@@ -100,8 +100,16 @@ const autonomyOptionsZh = [
 ]
 
 const autonomyOptionsEn = [
-  { value: 'Autopilot', label: 'Autopilot (Auto)', description: 'Agent executes tasks automatically' },
-  { value: 'Supervised', label: 'Supervised (Confirm)', description: 'Manual confirmation for each step' }
+  {
+    value: 'Autopilot',
+    label: 'Autopilot (Auto)',
+    description: 'Agent executes tasks automatically'
+  },
+  {
+    value: 'Supervised',
+    label: 'Supervised (Confirm)',
+    description: 'Manual confirmation for each step'
+  }
 ]
 
 const mcpOptionsZh = [
@@ -121,9 +129,11 @@ export function KiroSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; description: string }>>([])
+  const [availableModels, setAvailableModels] = useState<
+    Array<{ id: string; name: string; description: string }>
+  >([])
   const [loadingModels, setLoadingModels] = useState(false)
-  
+
   const [expandedSections, setExpandedSections] = useState({
     agent: true,
     mcp: true,
@@ -141,12 +151,7 @@ export function KiroSettingsPage() {
   const autonomyOptions = isEn ? autonomyOptionsEn : autonomyOptionsZh
   const mcpOptions = isEn ? mcpOptionsEn : mcpOptionsZh
 
-  useEffect(() => {
-    loadKiroSettings()
-    loadAvailableModels()
-  }, [])
-
-  const loadAvailableModels = async () => {
+  const loadAvailableModels = useCallback(async () => {
     setLoadingModels(true)
     try {
       const result = await window.api.getKiroAvailableModels()
@@ -158,9 +163,9 @@ export function KiroSettingsPage() {
     } finally {
       setLoadingModels(false)
     }
-  }
+  }, [])
 
-  const loadKiroSettings = async () => {
+  const loadKiroSettings = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -184,7 +189,12 @@ export function KiroSettingsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [isEn])
+
+  useEffect(() => {
+    void loadKiroSettings()
+    void loadAvailableModels()
+  }, [loadAvailableModels, loadKiroSettings])
 
   const saveSettings = async () => {
     setSaving(true)
@@ -200,7 +210,7 @@ export function KiroSettingsPage() {
   }
 
   const toggleSection = (section: keyof typeof expandedSections) => {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }))
   }
 
   const openKiroSettingsFile = async () => {
@@ -253,7 +263,13 @@ export function KiroSettingsPage() {
   }
 
   const deleteSteeringFile = async (filename: string) => {
-    if (!confirm(isEn ? `Delete "${filename}"? This cannot be undone.` : `确定要删除 "${filename}" 吗？此操作无法撤销。`)) {
+    if (
+      !confirm(
+        isEn
+          ? `Delete "${filename}"? This cannot be undone.`
+          : `确定要删除 "${filename}" 吗？此操作无法撤销。`
+      )
+    ) {
       return
     }
     try {
@@ -288,7 +304,7 @@ export function KiroSettingsPage() {
 
   const addTrustedCommand = () => {
     if (newTrustedCommand.trim()) {
-      setSettings(prev => ({
+      setSettings((prev) => ({
         ...prev,
         trustedCommands: [...prev.trustedCommands, newTrustedCommand.trim()]
       }))
@@ -297,7 +313,7 @@ export function KiroSettingsPage() {
   }
 
   const removeTrustedCommand = (index: number) => {
-    setSettings(prev => ({
+    setSettings((prev) => ({
       ...prev,
       trustedCommands: prev.trustedCommands.filter((_, i) => i !== index)
     }))
@@ -305,7 +321,7 @@ export function KiroSettingsPage() {
 
   const addDenyCommand = () => {
     if (newDenyCommand.trim()) {
-      setSettings(prev => ({
+      setSettings((prev) => ({
         ...prev,
         commandDenylist: [...prev.commandDenylist, newDenyCommand.trim()]
       }))
@@ -314,11 +330,9 @@ export function KiroSettingsPage() {
   }
 
   const addDefaultDenyCommands = () => {
-    setSettings(prev => {
+    setSettings((prev) => {
       // 过滤掉已存在的命令
-      const newCommands = defaultDenyCommands.filter(
-        cmd => !prev.commandDenylist.includes(cmd)
-      )
+      const newCommands = defaultDenyCommands.filter((cmd) => !prev.commandDenylist.includes(cmd))
       return {
         ...prev,
         commandDenylist: [...prev.commandDenylist, ...newCommands]
@@ -327,7 +341,7 @@ export function KiroSettingsPage() {
   }
 
   const removeDenyCommand = (index: number) => {
-    setSettings(prev => ({
+    setSettings((prev) => ({
       ...prev,
       commandDenylist: prev.commandDenylist.filter((_, i) => i !== index)
     }))
@@ -353,22 +367,38 @@ export function KiroSettingsPage() {
               <Sparkles className="h-6 w-6 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-primary">{isEn ? 'Kiro Settings' : 'Kiro 设置'}</h1>
-              <p className="text-muted-foreground">{isEn ? 'Manage Kiro IDE config, MCP servers and user rules' : '管理 Kiro IDE 的配置、MCP 服务器和用户规则'}</p>
+              <h1 className="text-2xl font-bold text-primary">
+                {isEn ? 'Kiro Settings' : 'Kiro 设置'}
+              </h1>
+              <p className="text-muted-foreground">
+                {isEn
+                  ? 'Manage Kiro IDE config, MCP servers and user rules'
+                  : '管理 Kiro IDE 的配置、MCP 服务器和用户规则'}
+              </p>
             </div>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={loadKiroSettings} className="bg-background/50 backdrop-blur-sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadKiroSettings}
+              className="bg-background/50 backdrop-blur-sm"
+            >
               <RefreshCw className="h-4 w-4 mr-2" />
               {isEn ? 'Refresh' : '刷新'}
             </Button>
-            <Button variant="outline" size="sm" onClick={openKiroSettingsFile} className="bg-background/50 backdrop-blur-sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openKiroSettingsFile}
+              className="bg-background/50 backdrop-blur-sm"
+            >
               <ExternalLink className="h-4 w-4 mr-2" />
               {isEn ? 'Open File' : '打开设置文件'}
             </Button>
             <Button size="sm" onClick={saveSettings} disabled={saving}>
               <Save className="h-4 w-4 mr-2" />
-              {saving ? (isEn ? 'Saving...' : '保存中...') : (isEn ? 'Save' : '保存设置')}
+              {saving ? (isEn ? 'Saving...' : '保存中...') : isEn ? 'Save' : '保存设置'}
             </Button>
           </div>
         </div>
@@ -383,7 +413,10 @@ export function KiroSettingsPage() {
 
       {/* Agent 设置 */}
       <Card className="hover-lift">
-        <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg" onClick={() => toggleSection('agent')}>
+        <CardHeader
+          className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg"
+          onClick={() => toggleSection('agent')}
+        >
           <CardTitle className="text-base flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
@@ -391,7 +424,11 @@ export function KiroSettingsPage() {
               </div>
               <span>{isEn ? 'Agent Settings' : 'Agent 设置'}</span>
             </div>
-            {expandedSections.agent ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {expandedSections.agent ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
           </CardTitle>
         </CardHeader>
         {expandedSections.agent && (
@@ -400,12 +437,16 @@ export function KiroSettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">{isEn ? 'Agent Autonomy' : 'Agent 自主模式'}</p>
-                <p className="text-sm text-muted-foreground">{isEn ? 'Determines whether the agent will ask for accept/reject at each checkpoint in the workflow.' : '决定 Agent 在工作流的每个检查点是否要求接受/拒绝'}</p>
+                <p className="text-sm text-muted-foreground">
+                  {isEn
+                    ? 'Determines whether the agent will ask for accept/reject at each checkpoint in the workflow.'
+                    : '决定 Agent 在工作流的每个检查点是否要求接受/拒绝'}
+                </p>
               </div>
               <Select
                 value={settings.agentAutonomy}
                 options={autonomyOptions}
-                onChange={(value) => setSettings(prev => ({ ...prev, agentAutonomy: value }))}
+                onChange={(value) => setSettings((prev) => ({ ...prev, agentAutonomy: value }))}
                 className="w-[200px]"
               />
             </div>
@@ -414,25 +455,31 @@ export function KiroSettingsPage() {
             <div className="flex items-center justify-between border-t pt-4">
               <div className="flex-1 mr-4">
                 <p className="font-medium">{isEn ? 'Model Selection' : '模型选择'}</p>
-                <p className="text-sm text-muted-foreground">{isEn ? 'Select model to use for agent operations.' : '选择 Agent 操作使用的模型'}</p>
+                <p className="text-sm text-muted-foreground">
+                  {isEn ? 'Select model to use for agent operations.' : '选择 Agent 操作使用的模型'}
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 {availableModels.length > 0 ? (
                   <Select
                     value={settings.modelSelection}
-                    options={availableModels.map(m => ({
+                    options={availableModels.map((m) => ({
                       value: m.id,
                       label: m.name || m.id,
                       description: m.description
                     }))}
-                    onChange={(value) => setSettings(prev => ({ ...prev, modelSelection: value }))}
+                    onChange={(value) =>
+                      setSettings((prev) => ({ ...prev, modelSelection: value }))
+                    }
                     className="w-[240px]"
                   />
                 ) : (
                   <input
                     type="text"
                     value={settings.modelSelection}
-                    onChange={(e) => setSettings(prev => ({ ...prev, modelSelection: e.target.value }))}
+                    onChange={(e) =>
+                      setSettings((prev) => ({ ...prev, modelSelection: e.target.value }))
+                    }
                     placeholder="claude-haiku-4.5"
                     className="w-[240px] px-3 py-1.5 rounded-md border bg-background text-sm"
                   />
@@ -454,55 +501,87 @@ export function KiroSettingsPage() {
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                 <div>
                   <p className="font-medium">{isEn ? 'Enable Tab Autocomplete' : 'Tab 自动补全'}</p>
-                  <p className="text-sm text-muted-foreground">{isEn ? 'Tab Autocomplete allows Kiro Agent to provide code suggestions in the editor as you type.' : 'Tab 自动补全允许 Kiro Agent 在输入时提供代码建议'}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? 'Tab Autocomplete allows Kiro Agent to provide code suggestions in the editor as you type.'
+                      : 'Tab 自动补全允许 Kiro Agent 在输入时提供代码建议'}
+                  </p>
                 </div>
                 <Toggle
                   checked={settings.enableTabAutocomplete}
-                  onChange={(checked) => setSettings(prev => ({ ...prev, enableTabAutocomplete: checked }))}
+                  onChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, enableTabAutocomplete: checked }))
+                  }
                 />
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                 <div>
                   <p className="font-medium">{isEn ? 'Usage Summary' : '使用统计'}</p>
-                  <p className="text-sm text-muted-foreground">{isEn ? 'Display usage summary and elapsed time for agent executions.' : '显示 Agent 执行的用量摘要和耗时'}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? 'Display usage summary and elapsed time for agent executions.'
+                      : '显示 Agent 执行的用量摘要和耗时'}
+                  </p>
                 </div>
                 <Toggle
                   checked={settings.usageSummary}
-                  onChange={(checked) => setSettings(prev => ({ ...prev, usageSummary: checked }))}
+                  onChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, usageSummary: checked }))
+                  }
                 />
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                 <div>
-                  <p className="font-medium">{isEn ? 'Code References: Reference Tracker' : '代码引用追踪'}</p>
-                  <p className="text-sm text-muted-foreground">{isEn ? 'Allow Kiro to generate code with code references. Sometimes code generated by Kiro may be similar to publicly available code.' : '允许 Kiro 生成带代码引用的代码。Kiro 生成的代码可能与公开可用代码相似。'}</p>
+                  <p className="font-medium">
+                    {isEn ? 'Code References: Reference Tracker' : '代码引用追踪'}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? 'Allow Kiro to generate code with code references. Sometimes code generated by Kiro may be similar to publicly available code.'
+                      : '允许 Kiro 生成带代码引用的代码。Kiro 生成的代码可能与公开可用代码相似。'}
+                  </p>
                 </div>
                 <Toggle
                   checked={settings.codeReferences}
-                  onChange={(checked) => setSettings(prev => ({ ...prev, codeReferences: checked }))}
+                  onChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, codeReferences: checked }))
+                  }
                 />
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                 <div>
                   <p className="font-medium">{isEn ? 'Enable Codebase Indexing' : '代码库索引'}</p>
-                  <p className="text-sm text-muted-foreground">{isEn ? 'Enable Repo Indexing (Experimental). This is an experimental feature which does not work with multi-folder workspaces.' : '启用仓库索引（实验性）。这是一个实验性功能，不支持多文件夹工作区。'}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? 'Enable Repo Indexing (Experimental). This is an experimental feature which does not work with multi-folder workspaces.'
+                      : '启用仓库索引（实验性）。这是一个实验性功能，不支持多文件夹工作区。'}
+                  </p>
                 </div>
                 <Toggle
                   checked={settings.enableCodebaseIndexing}
-                  onChange={(checked) => setSettings(prev => ({ ...prev, enableCodebaseIndexing: checked }))}
+                  onChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, enableCodebaseIndexing: checked }))
+                  }
                 />
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                 <div>
                   <p className="font-medium">{isEn ? 'Enable Debug Logs' : '调试日志'}</p>
-                  <p className="text-sm text-muted-foreground">{isEn ? 'Enable Kiro Debug Logs in the Output panel.' : '在输出面板启用 Kiro 调试日志'}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? 'Enable Kiro Debug Logs in the Output panel.'
+                      : '在输出面板启用 Kiro 调试日志'}
+                  </p>
                 </div>
                 <Toggle
                   checked={settings.enableDebugLogs}
-                  onChange={(checked) => setSettings(prev => ({ ...prev, enableDebugLogs: checked }))}
+                  onChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, enableDebugLogs: checked }))
+                  }
                 />
               </div>
             </div>
@@ -513,42 +592,68 @@ export function KiroSettingsPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                   <div>
-                    <p className="font-medium">{isEn ? 'Agent: Action Required' : 'Agent: 需要操作'}</p>
-                    <p className="text-sm text-muted-foreground">{isEn ? 'Show desktop notification when the agent requires input, e.g. for a shell command.' : 'Agent 需要输入时显示桌面通知，如执行 Shell 命令时'}</p>
+                    <p className="font-medium">
+                      {isEn ? 'Agent: Action Required' : 'Agent: 需要操作'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {isEn
+                        ? 'Show desktop notification when the agent requires input, e.g. for a shell command.'
+                        : 'Agent 需要输入时显示桌面通知，如执行 Shell 命令时'}
+                    </p>
                   </div>
                   <Toggle
                     checked={settings.notificationsActionRequired}
-                    onChange={(checked) => setSettings(prev => ({ ...prev, notificationsActionRequired: checked }))}
+                    onChange={(checked) =>
+                      setSettings((prev) => ({ ...prev, notificationsActionRequired: checked }))
+                    }
                   />
                 </div>
                 <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                   <div>
                     <p className="font-medium">{isEn ? 'Agent: Failure' : 'Agent: 失败'}</p>
-                    <p className="text-sm text-muted-foreground">{isEn ? 'Show desktop notification when the agent encounters an unexpected failure.' : 'Agent 遇到意外失败时显示桌面通知'}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {isEn
+                        ? 'Show desktop notification when the agent encounters an unexpected failure.'
+                        : 'Agent 遇到意外失败时显示桌面通知'}
+                    </p>
                   </div>
                   <Toggle
                     checked={settings.notificationsFailure}
-                    onChange={(checked) => setSettings(prev => ({ ...prev, notificationsFailure: checked }))}
+                    onChange={(checked) =>
+                      setSettings((prev) => ({ ...prev, notificationsFailure: checked }))
+                    }
                   />
                 </div>
                 <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                   <div>
                     <p className="font-medium">{isEn ? 'Agent: Success' : 'Agent: 成功'}</p>
-                    <p className="text-sm text-muted-foreground">{isEn ? 'Show desktop notifications when the agent successfully completes a task.' : 'Agent 成功完成任务时显示桌面通知'}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {isEn
+                        ? 'Show desktop notifications when the agent successfully completes a task.'
+                        : 'Agent 成功完成任务时显示桌面通知'}
+                    </p>
                   </div>
                   <Toggle
                     checked={settings.notificationsSuccess}
-                    onChange={(checked) => setSettings(prev => ({ ...prev, notificationsSuccess: checked }))}
+                    onChange={(checked) =>
+                      setSettings((prev) => ({ ...prev, notificationsSuccess: checked }))
+                    }
                   />
                 </div>
                 <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                   <div>
                     <p className="font-medium">{isEn ? 'Billing' : '账单'}</p>
-                    <p className="text-sm text-muted-foreground">{isEn ? 'Show in-app notifications for billing and usage events (usage resets, low resources, overages).' : '显示账单和用量事件的应用内通知（用量重置、资源不足、超额）'}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {isEn
+                        ? 'Show in-app notifications for billing and usage events (usage resets, low resources, overages).'
+                        : '显示账单和用量事件的应用内通知（用量重置、资源不足、超额）'}
+                    </p>
                   </div>
                   <Toggle
                     checked={settings.notificationsBilling}
-                    onChange={(checked) => setSettings(prev => ({ ...prev, notificationsBilling: checked }))}
+                    onChange={(checked) =>
+                      setSettings((prev) => ({ ...prev, notificationsBilling: checked }))
+                    }
                   />
                 </div>
               </div>
@@ -559,7 +664,10 @@ export function KiroSettingsPage() {
 
       {/* MCP 设置 */}
       <Card className="hover-lift">
-        <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg" onClick={() => toggleSection('mcp')}>
+        <CardHeader
+          className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg"
+          onClick={() => toggleSection('mcp')}
+        >
           <CardTitle className="text-base flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
@@ -570,7 +678,11 @@ export function KiroSettingsPage() {
                 {Object.keys(mcpConfig.mcpServers).length}
               </span>
             </div>
-            {expandedSections.mcp ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {expandedSections.mcp ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
           </CardTitle>
         </CardHeader>
         {expandedSections.mcp && (
@@ -578,23 +690,34 @@ export function KiroSettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">{isEn ? 'Enable MCP' : '启用 MCP'}</p>
-                <p className="text-sm text-muted-foreground">{isEn ? 'Allow connections to external tools and data sources' : '允许连接外部工具和数据源'}</p>
+                <p className="text-sm text-muted-foreground">
+                  {isEn
+                    ? 'Allow connections to external tools and data sources'
+                    : '允许连接外部工具和数据源'}
+                </p>
               </div>
               <Select
                 value={settings.configureMCP}
                 options={mcpOptions}
-                onChange={(value) => setSettings(prev => ({ ...prev, configureMCP: value }))}
+                onChange={(value) => setSettings((prev) => ({ ...prev, configureMCP: value }))}
               />
             </div>
 
             <div className="border-t pt-4">
-              <p className="font-medium mb-2">{isEn ? 'Configured MCP Servers' : '已配置的 MCP 服务器'}</p>
+              <p className="font-medium mb-2">
+                {isEn ? 'Configured MCP Servers' : '已配置的 MCP 服务器'}
+              </p>
               {Object.keys(mcpConfig.mcpServers).length === 0 ? (
-                <p className="text-sm text-muted-foreground">{isEn ? 'No MCP servers configured' : '暂无配置的 MCP 服务器'}</p>
+                <p className="text-sm text-muted-foreground">
+                  {isEn ? 'No MCP servers configured' : '暂无配置的 MCP 服务器'}
+                </p>
               ) : (
                 <div className="space-y-2">
                   {Object.entries(mcpConfig.mcpServers).map(([name, server]) => (
-                    <div key={name} className="flex items-center justify-between p-2 bg-muted rounded-md">
+                    <div
+                      key={name}
+                      className="flex items-center justify-between p-2 bg-muted rounded-md"
+                    >
                       <div className="flex-1">
                         <p className="font-medium text-sm">{name}</p>
                         <p className="text-xs text-muted-foreground font-mono">{server.command}</p>
@@ -641,7 +764,10 @@ export function KiroSettingsPage() {
 
       {/* Steering 用户规则 */}
       <Card className="hover-lift">
-        <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg" onClick={() => toggleSection('steering')}>
+        <CardHeader
+          className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg"
+          onClick={() => toggleSection('steering')}
+        >
           <CardTitle className="text-base flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
@@ -652,24 +778,29 @@ export function KiroSettingsPage() {
                 {steeringFiles.length} {isEn ? 'files' : '个文件'}
               </span>
             </div>
-            {expandedSections.steering ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {expandedSections.steering ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
           </CardTitle>
         </CardHeader>
         {expandedSections.steering && (
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              {isEn ? 'Steering files define AI assistant behavior rules and context' : 'Steering 文件用于定义 AI 助手的行为规则和上下文'}
+              {isEn
+                ? 'Steering files define AI assistant behavior rules and context'
+                : 'Steering 文件用于定义 AI 助手的行为规则和上下文'}
             </p>
 
             {steeringFiles.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{isEn ? 'No steering files' : '暂无 Steering 文件'}</p>
+              <p className="text-sm text-muted-foreground">
+                {isEn ? 'No steering files' : '暂无 Steering 文件'}
+              </p>
             ) : (
               <div className="space-y-2">
                 {steeringFiles.map((file, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-2 p-2 bg-muted rounded-md"
-                  >
+                  <div key={index} className="flex items-center gap-2 p-2 bg-muted rounded-md">
                     <FileText className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-mono flex-1">{file}</span>
                     <button
@@ -714,7 +845,10 @@ export function KiroSettingsPage() {
 
       {/* 命令设置 */}
       <Card className="hover-lift">
-        <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg" onClick={() => toggleSection('commands')}>
+        <CardHeader
+          className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg"
+          onClick={() => toggleSection('commands')}
+        >
           <CardTitle className="text-base flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
@@ -722,7 +856,11 @@ export function KiroSettingsPage() {
               </div>
               <span>{isEn ? 'Command Config' : '命令配置'}</span>
             </div>
-            {expandedSections.commands ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {expandedSections.commands ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
           </CardTitle>
         </CardHeader>
         {expandedSections.commands && (
@@ -733,7 +871,11 @@ export function KiroSettingsPage() {
                 <Shield className="h-4 w-4 text-primary" />
                 <p className="font-medium">{isEn ? 'Trusted Commands' : '信任的命令'}</p>
               </div>
-              <p className="text-sm text-muted-foreground mb-3">{isEn ? 'These commands will auto-execute without confirmation' : '这些命令将自动执行，无需确认'}</p>
+              <p className="text-sm text-muted-foreground mb-3">
+                {isEn
+                  ? 'These commands will auto-execute without confirmation'
+                  : '这些命令将自动执行，无需确认'}
+              </p>
               <div className="space-y-2">
                 {settings.trustedCommands.map((cmd, index) => (
                   <div key={index} className="flex items-center gap-2">
@@ -765,25 +907,35 @@ export function KiroSettingsPage() {
                 <Zap className="h-4 w-4 text-primary" />
                 <p className="font-medium">{isEn ? 'Trusted Tools' : '信任的工具'}</p>
               </div>
-              <p className="text-sm text-muted-foreground mb-3">{isEn ? 'Tools to auto-accept if requested by the Agent. Each tool name maps to a boolean indicating whether it should be trusted.' : '当 Agent 请求使用这些工具时自动批准。每个工具名称对应是否信任的布尔值。'}</p>
+              <p className="text-sm text-muted-foreground mb-3">
+                {isEn
+                  ? 'Tools to auto-accept if requested by the Agent. Each tool name maps to a boolean indicating whether it should be trusted.'
+                  : '当 Agent 请求使用这些工具时自动批准。每个工具名称对应是否信任的布尔值。'}
+              </p>
               <div className="space-y-2">
                 {Object.entries(settings.trustedTools).map(([name, trusted]) => (
                   <div key={name} className="flex items-center gap-2">
                     <code className="flex-1 px-2 py-1 bg-muted rounded text-sm">{name}</code>
                     <Toggle
                       checked={trusted}
-                      onChange={(checked) => setSettings(prev => ({
-                        ...prev,
-                        trustedTools: { ...prev.trustedTools, [name]: checked }
-                      }))}
+                      onChange={(checked) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          trustedTools: { ...prev.trustedTools, [name]: checked }
+                        }))
+                      }
                     />
-                    <Button variant="ghost" size="sm" onClick={() => {
-                      setSettings(prev => {
-                        const tools = { ...prev.trustedTools }
-                        delete tools[name]
-                        return { ...prev, trustedTools: tools }
-                      })
-                    }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSettings((prev) => {
+                          const tools = { ...prev.trustedTools }
+                          delete tools[name]
+                          return { ...prev, trustedTools: tools }
+                        })
+                      }}
+                    >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
@@ -797,7 +949,7 @@ export function KiroSettingsPage() {
                     className="flex-1 px-3 py-1.5 rounded-md border bg-background text-sm"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && newTrustedToolName.trim()) {
-                        setSettings(prev => ({
+                        setSettings((prev) => ({
                           ...prev,
                           trustedTools: { ...prev.trustedTools, [newTrustedToolName.trim()]: true }
                         }))
@@ -805,15 +957,19 @@ export function KiroSettingsPage() {
                       }
                     }}
                   />
-                  <Button variant="outline" size="sm" onClick={() => {
-                    if (newTrustedToolName.trim()) {
-                      setSettings(prev => ({
-                        ...prev,
-                        trustedTools: { ...prev.trustedTools, [newTrustedToolName.trim()]: true }
-                      }))
-                      setNewTrustedToolName('')
-                    }
-                  }}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (newTrustedToolName.trim()) {
+                        setSettings((prev) => ({
+                          ...prev,
+                          trustedTools: { ...prev.trustedTools, [newTrustedToolName.trim()]: true }
+                        }))
+                        setNewTrustedToolName('')
+                      }
+                    }}
+                  >
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
@@ -824,9 +980,15 @@ export function KiroSettingsPage() {
             <div className="p-4 rounded-lg bg-destructive/5 border border-destructive/20">
               <div className="flex items-center gap-2 mb-3">
                 <AlertCircle className="h-4 w-4 text-destructive" />
-                <p className="font-medium text-destructive">{isEn ? 'Blocked Commands' : '禁止的命令'}</p>
+                <p className="font-medium text-destructive">
+                  {isEn ? 'Blocked Commands' : '禁止的命令'}
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground mb-3">{isEn ? 'These commands always require manual confirmation' : '这些命令总是需要手动确认'}</p>
+              <p className="text-sm text-muted-foreground mb-3">
+                {isEn
+                  ? 'These commands always require manual confirmation'
+                  : '这些命令总是需要手动确认'}
+              </p>
               <div className="space-y-2">
                 {settings.commandDenylist.map((cmd, index) => (
                   <div key={index} className="flex items-center gap-2">
@@ -849,9 +1011,9 @@ export function KiroSettingsPage() {
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={addDefaultDenyCommands}
                   className="mt-2"
                 >

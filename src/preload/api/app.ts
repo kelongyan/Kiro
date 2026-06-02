@@ -10,7 +10,10 @@ export const appApi = {
   },
 
   onAuthCallback: (callback: (data: { code: string; state: string }) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { code: string; state: string }): void => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { code: string; state: string }
+    ): void => {
       callback(data)
     }
     ipcRenderer.on('auth-callback', handler)

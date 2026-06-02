@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '../ui'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -19,11 +19,7 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
   const { t } = useTranslation()
   const isEn = t('common.unknown') === 'Unknown'
 
-  useEffect(() => {
-    loadContent()
-  }, [filename])
-
-  const loadContent = async () => {
+  const loadContent = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -40,7 +36,11 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
     } finally {
       setLoading(false)
     }
-  }
+  }, [filename, isEn])
+
+  useEffect(() => {
+    void loadContent()
+  }, [loadContent])
 
   const saveContent = async () => {
     setSaving(true)
@@ -63,7 +63,13 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
 
   const handleClose = () => {
     if (modified) {
-      if (confirm(isEn ? 'File modified. Close anyway? Unsaved changes will be lost.' : '文件已修改，确定要关闭吗？未保存的更改将丢失。')) {
+      if (
+        confirm(
+          isEn
+            ? 'File modified. Close anyway? Unsaved changes will be lost.'
+            : '文件已修改，确定要关闭吗？未保存的更改将丢失。'
+        )
+      ) {
         onClose()
       }
     } else {
@@ -79,11 +85,8 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/50"
-        onClick={handleClose}
-      />
-      
+      <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
+
       {/* Dialog */}
       <div className="relative bg-background rounded-lg shadow-xl w-[90vw] max-w-4xl h-[80vh] flex flex-col">
         {/* Header */}
@@ -91,20 +94,22 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
           <div className="flex items-center gap-2">
             <h2 className="font-semibold">{isEn ? 'Edit Steering File' : '编辑 Steering 文件'}</h2>
             <span className="text-sm text-muted-foreground font-mono">{filename}</span>
-            {modified && <span className="text-xs text-warning">● {isEn ? 'Modified' : '已修改'}</span>}
+            {modified && (
+              <span className="text-xs text-warning">● {isEn ? 'Modified' : '已修改'}</span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={loadContent} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
-            <Button 
-              variant="default" 
-              size="sm" 
-              onClick={saveContent} 
+            <Button
+              variant="default"
+              size="sm"
+              onClick={saveContent}
               disabled={saving || !modified}
             >
               <Save className="h-4 w-4 mr-1" />
-              {saving ? (isEn ? 'Saving...' : '保存中...') : (isEn ? 'Save' : '保存')}
+              {saving ? (isEn ? 'Saving...' : '保存中...') : isEn ? 'Save' : '保存'}
             </Button>
             <Button variant="ghost" size="sm" onClick={handleClose}>
               <X className="h-4 w-4" />
@@ -114,9 +119,7 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
 
         {/* Error */}
         {error && (
-          <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm">
-            {error}
-          </div>
+          <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm">{error}</div>
         )}
 
         {/* Editor */}
@@ -138,12 +141,12 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
 
         {/* Footer */}
         <div className="px-4 py-2 border-t text-xs text-muted-foreground">
-          {isEn ? 'Tip: Steering files use Markdown format to define AI assistant behavior rules' : '提示：Steering 文件使用 Markdown 格式，用于定义 AI 助手的行为规则'}
+          {isEn
+            ? 'Tip: Steering files use Markdown format to define AI assistant behavior rules'
+            : '提示：Steering 文件使用 Markdown 格式，用于定义 AI 助手的行为规则'}
         </div>
       </div>
     </div>,
     document.body
   )
 }
-
-
