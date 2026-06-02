@@ -46,6 +46,8 @@ import { AccountSelectDialog } from './AccountSelectDialog'
 import { ApiKeyManager } from './ApiKeyManager'
 import { ClientConfigDialog } from './ClientConfigDialog'
 import { createPortal } from 'react-dom'
+import { onLocalAdminEvent } from '../../services/local-admin-events'
+import * as proxyAdmin from '../../services/local-admin-proxy'
 
 function compactNumber(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
@@ -213,7 +215,7 @@ export function ProxyPanel() {
     }
 
     setConfig((prev) => ({ ...prev, apiKey: newKey }))
-    window.api.proxyUpdateConfig({ apiKey: newKey })
+    proxyAdmin.proxyUpdateConfig({ apiKey: newKey })
     setShowApiKey(true)
     setApiKeyGenerated(true)
     setTimeout(() => setApiKeyGenerated(false), 1500)
@@ -231,7 +233,7 @@ export function ProxyPanel() {
   // 获取状态
   const fetchStatus = useCallback(async () => {
     try {
-      const result = await window.api.proxyGetStatus()
+      const result = await proxyAdmin.proxyGetStatus()
       setIsRunning(result.running)
       if (result.config) {
         const cfg = result.config as ProxyConfig & { selectedAccountIds?: string[] }
@@ -252,7 +254,7 @@ export function ProxyPanel() {
         setSessionStats(result.sessionStats as SessionStats)
       }
 
-      const accountsResult = await window.api.proxyGetAccounts()
+      const accountsResult = await proxyAdmin.proxyGetAccounts()
       setAccountCount(accountsResult.accounts.length)
       setAvailableCount(accountsResult.availableCount)
     } catch (err) {
@@ -262,7 +264,7 @@ export function ProxyPanel() {
 
   const loadAvailableModels = useCallback(async () => {
     try {
-      const result = await window.api.proxyGetModels()
+      const result = await proxyAdmin.proxyGetModels()
       if (result.success && result.models) {
         setAvailableModels(
           result.models.map((m: { id: string; name?: string }) => ({
@@ -310,7 +312,7 @@ export function ProxyPanel() {
         provider: acc.credentials?.provider || acc.idp
       }))
 
-      const result = await window.api.proxySyncAccounts(proxyAccounts)
+      const result = await proxyAdmin.proxySyncAccounts(proxyAccounts)
       if (result.success) {
         setAccountCount(result.accountCount || 0)
         await fetchStatus()
@@ -337,7 +339,7 @@ export function ProxyPanel() {
       // 先同步账号
       await syncAccounts()
 
-      const result = await window.api.proxyStart({
+      const result = await proxyAdmin.proxyStart({
         port: config.port,
         host: config.host,
         apiKey: config.apiKey,
@@ -362,7 +364,7 @@ export function ProxyPanel() {
   const handleStop = async () => {
     setError(null)
     try {
-      const result = await window.api.proxyStop()
+      const result = await proxyAdmin.proxyStop()
       if (result.success) {
         setIsRunning(false)
         setStats(null)
@@ -388,7 +390,7 @@ export function ProxyPanel() {
     setIsRefreshingModels(true)
     setRefreshSuccess(false)
     try {
-      const result = await window.api.proxyRefreshModels()
+      const result = await proxyAdmin.proxyRefreshModels()
       if (result.success) {
         await loadAvailableModels()
         setRefreshSuccess(true)
@@ -405,7 +407,7 @@ export function ProxyPanel() {
 
   // 加载历史日志
   useEffect(() => {
-    window.api.proxyLoadLogs().then((result) => {
+    proxyAdmin.proxyLoadLogs().then((result) => {
       if (result.success && result.logs.length > 0) {
         setRecentLogs(result.logs)
       }
@@ -416,7 +418,7 @@ export function ProxyPanel() {
   useEffect(() => {
     if (recentLogs.length === 0) return
     const timer = setTimeout(() => {
-      window.api.proxySaveLogs(recentLogs)
+      proxyAdmin.proxySaveLogs(recentLogs)
     }, 2000)
     return () => clearTimeout(timer)
   }, [recentLogs])
@@ -427,11 +429,11 @@ export function ProxyPanel() {
     loadAvailableModels()
 
     // 监听事件
-    const unsubRequest = window.api.onProxyRequest((info) => {
+    const unsubRequest = onLocalAdminEvent('proxy-request', ({ payload: info }) => {
       console.log('[Proxy] Request:', info)
     })
 
-    const unsubResponse = window.api.onProxyResponse((info) => {
+    const unsubResponse = onLocalAdminEvent('proxy-response', ({ payload: info }) => {
       const now = new Date()
       const year = now.getFullYear()
       const month = (now.getMonth() + 1).toString().padStart(2, '0')
@@ -463,12 +465,12 @@ export function ProxyPanel() {
       fetchStatus()
     })
 
-    const unsubError = window.api.onProxyError((err) => {
+    const unsubError = onLocalAdminEvent('proxy-error', ({ payload: err }) => {
       console.error('[Proxy] Error:', err)
       setError(err)
     })
 
-    const unsubStatus = window.api.onProxyStatusChange((status) => {
+    const unsubStatus = onLocalAdminEvent('proxy-status-change', ({ payload: status }) => {
       setIsRunning(status.running)
       if (status.running) {
         setConfig((prev) => ({ ...prev, port: status.port }))
@@ -686,7 +688,7 @@ export function ProxyPanel() {
                 onChange={(e) => {
                   const newPort = parseInt(e.target.value) || 5580
                   setConfig((prev) => ({ ...prev, port: newPort }))
-                  window.api.proxyUpdateConfig({ port: newPort })
+                  proxyAdmin.proxyUpdateConfig({ port: newPort })
                 }}
                 disabled={isRunning}
                 className="h-9"
@@ -716,12 +718,12 @@ export function ProxyPanel() {
                     onCheckedChange={async (checked) => {
                       const newHost = checked ? '0.0.0.0' : '127.0.0.1'
                       setConfig((prev) => ({ ...prev, host: newHost }))
-                      await window.api.proxyUpdateConfig({ host: newHost })
+                      await proxyAdmin.proxyUpdateConfig({ host: newHost })
                       if (isRunning) {
                         try {
-                          await window.api.proxyStop()
+                          await proxyAdmin.proxyStop()
                           await new Promise((r) => setTimeout(r, 200))
-                          await window.api.proxyStart()
+                          await proxyAdmin.proxyStart()
                         } catch (err) {
                           console.error('[Proxy] Failed to restart after host change:', err)
                           setError(err instanceof Error ? err.message : String(err))
@@ -741,7 +743,7 @@ export function ProxyPanel() {
                 onChange={(e) => {
                   const newHost = e.target.value
                   setConfig((prev) => ({ ...prev, host: newHost }))
-                  window.api.proxyUpdateConfig({ host: newHost })
+                  proxyAdmin.proxyUpdateConfig({ host: newHost })
                 }}
                 disabled={isRunning}
                 className={`h-9 ${config.host === '0.0.0.0' ? 'border-warning/50' : ''}`}
@@ -821,7 +823,7 @@ export function ProxyPanel() {
                   onChange={(e) => {
                     const newApiKey = e.target.value || undefined
                     setConfig((prev) => ({ ...prev, apiKey: newApiKey }))
-                    window.api.proxyUpdateConfig({ apiKey: newApiKey })
+                    proxyAdmin.proxyUpdateConfig({ apiKey: newApiKey })
                   }}
                   disabled={isRunning}
                   className="pr-9 h-9"
@@ -852,7 +854,7 @@ export function ProxyPanel() {
                 checked={config.autoStart || false}
                 onCheckedChange={(checked) => {
                   setConfig((prev) => ({ ...prev, autoStart: checked }))
-                  window.api.proxyUpdateConfig({ autoStart: checked })
+                  proxyAdmin.proxyUpdateConfig({ autoStart: checked })
                 }}
               />
               <Label htmlFor="autoStart" className="text-sm cursor-pointer">
@@ -865,7 +867,7 @@ export function ProxyPanel() {
                 checked={config.enableMultiAccount}
                 onCheckedChange={(checked) => {
                   setConfig((prev) => ({ ...prev, enableMultiAccount: checked }))
-                  window.api.proxyUpdateConfig({ enableMultiAccount: checked })
+                  proxyAdmin.proxyUpdateConfig({ enableMultiAccount: checked })
                 }}
                 disabled={isRunning}
               />
@@ -894,7 +896,7 @@ export function ProxyPanel() {
                         } disabled:opacity-50 disabled:cursor-not-allowed`}
                         onClick={() => {
                           setConfig((prev) => ({ ...prev, accountSelectionStrategy: strategy }))
-                          window.api.proxyUpdateConfig({ accountSelectionStrategy: strategy })
+                          proxyAdmin.proxyUpdateConfig({ accountSelectionStrategy: strategy })
                         }}
                       >
                         {isEn ? labelEn : labelZh}
@@ -940,7 +942,7 @@ export function ProxyPanel() {
                   else next.add(gid)
                   const ids = Array.from(next)
                   setConfig((prev) => ({ ...prev, multiAccountGroupIds: ids }))
-                  window.api.proxyUpdateConfig({ multiAccountGroupIds: ids })
+                  proxyAdmin.proxyUpdateConfig({ multiAccountGroupIds: ids })
                 }
                 return (
                   <div className="col-span-2 flex flex-col gap-2">
@@ -969,7 +971,7 @@ export function ProxyPanel() {
                               } disabled:opacity-50 disabled:cursor-not-allowed`}
                               onClick={() => {
                                 setConfig((prev) => ({ ...prev, multiAccountSelectionMode: mode }))
-                                window.api.proxyUpdateConfig({ multiAccountSelectionMode: mode })
+                                proxyAdmin.proxyUpdateConfig({ multiAccountSelectionMode: mode })
                               }}
                             >
                               {label}
@@ -1088,7 +1090,7 @@ export function ProxyPanel() {
                     checked={config.autoSwitchOnQuotaExhausted || false}
                     onCheckedChange={(checked) => {
                       setConfig((prev) => ({ ...prev, autoSwitchOnQuotaExhausted: checked }))
-                      window.api.proxyUpdateConfig({ autoSwitchOnQuotaExhausted: checked })
+                      proxyAdmin.proxyUpdateConfig({ autoSwitchOnQuotaExhausted: checked })
                     }}
                     disabled={isRunning}
                   />
@@ -1108,7 +1110,7 @@ export function ProxyPanel() {
                 checked={config.logRequests}
                 onCheckedChange={(checked) => {
                   setConfig((prev) => ({ ...prev, logRequests: checked }))
-                  window.api.proxyUpdateConfig({ logRequests: checked })
+                  proxyAdmin.proxyUpdateConfig({ logRequests: checked })
                 }}
               />
               <Label htmlFor="logRequests" className="text-sm cursor-pointer">
@@ -1121,7 +1123,7 @@ export function ProxyPanel() {
                 checked={config.logStreamEvents || false}
                 onCheckedChange={(checked) => {
                   setConfig((prev) => ({ ...prev, logStreamEvents: checked }))
-                  window.api.proxyUpdateConfig({ logStreamEvents: checked })
+                  proxyAdmin.proxyUpdateConfig({ logStreamEvents: checked })
                 }}
               />
               <Label htmlFor="logStreamEvents" className="text-sm cursor-pointer">
@@ -1178,7 +1180,7 @@ export function ProxyPanel() {
                       | 'amazonq-cli'
                       | undefined
                     setConfig((prev) => ({ ...prev, preferredEndpoint: endpoint }))
-                    window.api.proxyUpdateConfig({ preferredEndpoint: endpoint })
+                    proxyAdmin.proxyUpdateConfig({ preferredEndpoint: endpoint })
                   }}
                   placeholder={isEn ? 'Select endpoint' : '选择端点'}
                 />
@@ -1196,7 +1198,7 @@ export function ProxyPanel() {
                   onChange={(e) => {
                     const retries = parseInt(e.target.value) || 3
                     setConfig((prev) => ({ ...prev, maxRetries: retries }))
-                    window.api.proxyUpdateConfig({ maxRetries: retries })
+                    proxyAdmin.proxyUpdateConfig({ maxRetries: retries })
                   }}
                   disabled={isRunning}
                   className="h-9"
@@ -1224,7 +1226,7 @@ export function ProxyPanel() {
                   onChange={(e) => {
                     const kb = parseInt(e.target.value) || 1536
                     setConfig((prev) => ({ ...prev, payloadSizeLimitKB: kb }))
-                    window.api.proxyUpdateConfig({ payloadSizeLimitKB: kb })
+                    proxyAdmin.proxyUpdateConfig({ payloadSizeLimitKB: kb })
                   }}
                   disabled={isRunning}
                   className="h-9"
@@ -1251,7 +1253,7 @@ export function ProxyPanel() {
                     checked={config.clientDrivenToolExecution !== false}
                     onCheckedChange={(checked) => {
                       setConfig((prev) => ({ ...prev, clientDrivenToolExecution: checked }))
-                      window.api.proxyUpdateConfig({ clientDrivenToolExecution: checked })
+                      proxyAdmin.proxyUpdateConfig({ clientDrivenToolExecution: checked })
                     }}
                     disabled={isRunning}
                     className="scale-90"
@@ -1279,7 +1281,7 @@ export function ProxyPanel() {
                     checked={config.disableTools || false}
                     onCheckedChange={(checked) => {
                       setConfig((prev) => ({ ...prev, disableTools: checked }))
-                      window.api.proxyUpdateConfig({ disableTools: checked })
+                      proxyAdmin.proxyUpdateConfig({ disableTools: checked })
                     }}
                     disabled={isRunning}
                     className="scale-90"
@@ -1311,7 +1313,7 @@ export function ProxyPanel() {
                       checked={config.enableTokenBufferReserve || false}
                       onCheckedChange={(checked) => {
                         setConfig((prev) => ({ ...prev, enableTokenBufferReserve: checked }))
-                        window.api.proxyUpdateConfig({ enableTokenBufferReserve: checked })
+                        proxyAdmin.proxyUpdateConfig({ enableTokenBufferReserve: checked })
                       }}
                       disabled={isRunning}
                       className="scale-90"
@@ -1327,7 +1329,7 @@ export function ProxyPanel() {
                     onChange={(e) => {
                       const tokens = parseInt(e.target.value) || 20000
                       setConfig((prev) => ({ ...prev, tokenBufferReserve: tokens }))
-                      window.api.proxyUpdateConfig({ tokenBufferReserve: tokens })
+                      proxyAdmin.proxyUpdateConfig({ tokenBufferReserve: tokens })
                     }}
                     disabled={isRunning || !config.enableTokenBufferReserve}
                     placeholder={
@@ -1376,8 +1378,8 @@ export function ProxyPanel() {
                   size="icon"
                   className="h-4 w-4 text-muted-foreground hover:text-destructive"
                   onClick={async () => {
-                    await window.api.proxyResetRequestStats()
-                    const result = await window.api.proxyGetStatus()
+                    await proxyAdmin.proxyResetRequestStats()
+                    const result = await proxyAdmin.proxyGetStatus()
                     if (result.stats) {
                       setStats(result.stats as ProxyStats)
                     }
@@ -1811,14 +1813,14 @@ export function ProxyPanel() {
         totalTokens={(stats?.inputTokens || 0) + (stats?.outputTokens || 0)}
         onClearLogs={() => {
           setRecentLogs([])
-          window.api.proxySaveLogs([])
+          proxyAdmin.proxySaveLogs([])
         }}
         onResetCredits={async () => {
-          await window.api.proxyResetCredits()
+          await proxyAdmin.proxyResetCredits()
           fetchStatus()
         }}
         onResetTokens={async () => {
-          await window.api.proxyResetTokens()
+          await proxyAdmin.proxyResetTokens()
           fetchStatus()
         }}
         isEn={isEn}
@@ -1838,7 +1840,7 @@ export function ProxyPanel() {
         onOpenModelMapping={async () => {
           // 获取可用模型列表
           try {
-            const result = await window.api.proxyGetModels()
+            const result = await proxyAdmin.proxyGetModels()
             if (result.success && result.models) {
               setAvailableModels(
                 result.models.map((m: { id: string; name?: string }) => ({
@@ -1870,7 +1872,7 @@ export function ProxyPanel() {
         mappings={config.modelMappings || []}
         onMappingsChange={(mappings) => {
           setConfig((prev) => ({ ...prev, modelMappings: mappings }))
-          window.api.proxyUpdateConfig({ modelMappings: mappings })
+          proxyAdmin.proxyUpdateConfig({ modelMappings: mappings })
         }}
         apiKeys={(config.apiKeys || []).map((k) => ({ id: k.id, name: k.name }))}
         availableModels={availableModels}
@@ -1884,7 +1886,7 @@ export function ProxyPanel() {
         selectedAccountId={config.selectedAccountId}
         onSelect={(accountId) => {
           setConfig((prev) => ({ ...prev, selectedAccountId: accountId }))
-          window.api.proxyUpdateConfig({ selectedAccountIds: accountId ? [accountId] : [] })
+          proxyAdmin.proxyUpdateConfig({ selectedAccountIds: accountId ? [accountId] : [] })
         }}
         isEn={isEn}
       />

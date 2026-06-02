@@ -1,6 +1,7 @@
 import { defineConfig } from 'eslint/config'
-import tseslint from '@electron-toolkit/eslint-config-ts'
-import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier'
+import tseslint from 'typescript-eslint'
+import eslintConfigPrettier from 'eslint-config-prettier'
+import eslintPluginPrettier from 'eslint-plugin-prettier'
 import eslintPluginReact from 'eslint-plugin-react'
 import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
@@ -26,12 +27,16 @@ export default defineConfig(
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
       ...eslintPluginReactRefresh.configs.vite.rules,
+      'react/prop-types': 'off',
       'react-refresh/only-export-components': ['error', { allowConstantExport: true }],
       '@typescript-eslint/explicit-function-return-type': 'off'
     }
   },
   eslintConfigPrettier,
   {
+    plugins: {
+      prettier: eslintPluginPrettier
+    },
     rules: {
       'prettier/prettier': ['warn', { endOfLine: 'auto' }]
     }

@@ -12,8 +12,8 @@ import {
   type ProxyClientTarget,
   type ProxyConfig,
   type ProxyStats
-} from '../../../main/proxy'
-import { proxyLogStore, type LogEntry } from '../../../main/proxy/logger'
+} from '../../../core/proxy'
+import { proxyLogStore, type LogEntry } from '../../../core/proxy/logger'
 
 export interface ProxyKeyValueStore {
   get(key: string): unknown
@@ -570,6 +570,20 @@ export class ProxyService {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to clear suspended'
       }
+    }
+  }
+
+  setAccountProxyBinding(accountId: string, proxyUrl: string | undefined): { success: boolean } {
+    try {
+      if (!accountId) return { success: false }
+      const account = this.currentServer?.getAccountPool().getAccount(accountId)
+      if (account) {
+        account.proxyUrl = proxyUrl || undefined
+      }
+      return { success: true }
+    } catch (error) {
+      console.error('[ProxyService] Failed to set account proxy binding:', error)
+      return { success: false }
     }
   }
 

@@ -16,6 +16,7 @@ import { useTranslation } from '@/hooks/useTranslation'
 import { useAccountsStore } from '@/store/accounts'
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge, Label, Input } from '../ui'
 import { cn } from '@/lib/utils'
+import { diagnoseRun as runDiagnosticsViaHttp } from '@/services/local-admin-diagnostics'
 
 interface DiagnoseTarget {
   id: string
@@ -179,7 +180,7 @@ export function DiagnosePage(): React.ReactNode {
       const next: Record<string, DiagnoseResult> = {}
       for (let i = 0; i < targets.length; i += BATCH) {
         const slice = targets.slice(i, i + BATCH)
-        const resp = await window.api.diagnoseRun({
+        const resp = await runDiagnosticsViaHttp({
           proxyUrl,
           targets: slice.map((tg) => ({
             id: tg.id,

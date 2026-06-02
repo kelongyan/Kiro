@@ -21,6 +21,7 @@ import {
 import { Select } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { useAccountsStore } from '@/store/accounts'
+import * as proxyAdmin from '@/services/local-admin-proxy'
 import { ApiKeyUsageDialog } from './ApiKeyUsageDialog'
 
 type ApiKeyFormat = 'sk' | 'simple' | 'token'
@@ -86,7 +87,7 @@ export function ApiKeyManager() {
 
   const loadApiKeys = useCallback(async () => {
     try {
-      const result = await window.api.proxyGetApiKeys()
+      const result = await proxyAdmin.proxyGetApiKeys()
       if (result.success) {
         setApiKeys(result.apiKeys)
       }
@@ -106,7 +107,7 @@ export function ApiKeyManager() {
 
     try {
       const creditsLimit = newKeyCreditsLimit ? parseFloat(newKeyCreditsLimit) : undefined
-      const result = await window.api.proxyAddApiKey({
+      const result = await proxyAdmin.proxyAddApiKey({
         name: newKeyName.trim(),
         format: newKeyFormat,
         creditsLimit: creditsLimit && creditsLimit > 0 ? creditsLimit : undefined
@@ -125,7 +126,7 @@ export function ApiKeyManager() {
     if (!confirm(isEn ? 'Delete this API key?' : '确定删除此 API Key？')) return
 
     try {
-      const result = await window.api.proxyDeleteApiKey(id)
+      const result = await proxyAdmin.proxyDeleteApiKey(id)
       if (result.success) {
         setApiKeys((prev) => prev.filter((k) => k.id !== id))
         if (selectedKey === id) setSelectedKey(null)
@@ -137,7 +138,7 @@ export function ApiKeyManager() {
 
   const handleToggleKey = async (id: string, enabled: boolean) => {
     try {
-      const result = await window.api.proxyUpdateApiKey(id, { enabled })
+      const result = await proxyAdmin.proxyUpdateApiKey(id, { enabled })
       if (result.success) {
         setApiKeys((prev) => prev.map((k) => (k.id === id ? { ...k, enabled } : k)))
       }
@@ -150,7 +151,7 @@ export function ApiKeyManager() {
     if (!confirm(isEn ? 'Reset usage statistics?' : '确定重置用量统计？')) return
 
     try {
-      const result = await window.api.proxyResetApiKeyUsage(id)
+      const result = await proxyAdmin.proxyResetApiKeyUsage(id)
       if (result.success) {
         setApiKeys((prev) =>
           prev.map((k) =>
@@ -432,7 +433,7 @@ export function ApiKeyManager() {
                   value={selectedKeyData.creditsLimit || ''}
                   onChange={async (e) => {
                     const limit = e.target.value ? parseFloat(e.target.value) : null
-                    const result = await window.api.proxyUpdateApiKey(selectedKeyData.id, {
+                    const result = await proxyAdmin.proxyUpdateApiKey(selectedKeyData.id, {
                       creditsLimit: limit && limit > 0 ? limit : null
                     })
                     if (result.success) {

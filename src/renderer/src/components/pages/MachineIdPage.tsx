@@ -25,15 +25,14 @@ import {
   Search
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-interface AdminRestartInfo {
-  requiresAdmin: true
-  canAutoRestart: false
-  osType: 'windows' | 'macos' | 'linux' | 'unknown'
-  executablePath: string
-  command: string
-  message: string
-}
+import {
+  createMachineIdBackupData,
+  machineIdCheckAdmin,
+  machineIdGetOSType,
+  machineIdRequestAdminRestart,
+  parseMachineIdBackupData,
+  type AdminRestartInfo
+} from '@/services/local-admin-machine-id'
 
 export function MachineIdPage() {
   const {
@@ -72,11 +71,11 @@ export function MachineIdPage() {
       setIsLoading(true)
       try {
         // 获取操作系统类型
-        const os = await window.api.machineIdGetOSType()
+        const os = await machineIdGetOSType()
         setOsType(os)
 
         // 检查管理员权限
-        const admin = await window.api.machineIdCheckAdmin()
+        const admin = await machineIdCheckAdmin()
         setHasAdmin(admin)
 
         // 刷新当前机器码
@@ -135,26 +134,47 @@ export function MachineIdPage() {
   // 备份机器码到文件
   const handleBackupToFile = async () => {
     if (!currentMachineId) return
-    await window.api.machineIdBackupToFile(currentMachineId)
+    const backup = await createMachineIdBackupData(currentMachineId)
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+      type: 'application/json;charset=utf-8'
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'machine-id-backup.json'
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   // 从文件恢复机器码
   const handleRestoreFromFile = async () => {
-    setIsLoading(true)
-    try {
-      const result = await window.api.machineIdRestoreFromFile()
-      if (result.success && result.machineId) {
-        await changeMachineId(result.machineId)
-        await refreshCurrentMachineId()
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'application/json,.json'
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      setIsLoading(true)
+      try {
+        const text = await file.text()
+        const parsed = JSON.parse(text) as { machineId?: string }
+        const result = parseMachineIdBackupData(parsed)
+        if (result.success && result.machineId) {
+          await changeMachineId(result.machineId)
+          await refreshCurrentMachineId()
+        }
+      } catch (error) {
+        console.error('[MachineId] Failed to restore from file:', error)
+      } finally {
+        setIsLoading(false)
       }
-    } finally {
-      setIsLoading(false)
     }
+    input.click()
   }
 
   // 请求管理员权限
   const handleRequestAdmin = async () => {
-    const info = await window.api.machineIdRequestAdminRestart()
+    const info = await machineIdRequestAdminRestart()
     setAdminRestartInfo(info)
   }
 

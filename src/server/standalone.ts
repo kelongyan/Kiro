@@ -18,6 +18,7 @@ import { createKProxyRouter } from './http/controllers/kproxy-controller'
 import { createDiagnosticsRouter } from './http/controllers/diagnostics-controller'
 import { createSubscriptionRouter } from './http/controllers/subscription-controller'
 import { createWebhookRouter } from './http/controllers/webhook-controller'
+import { createConfigSyncRouter } from './http/controllers/config-sync-controller'
 import {
   createLocalAdminServer,
   type LocalAdminServer,
@@ -34,9 +35,10 @@ import { KProxyManagementService } from './services/kproxy/kproxy-service'
 import { DiagnosticsService } from './services/diagnostics/diagnostics-service'
 import { SubscriptionService } from './services/subscriptions/subscription-service'
 import { WebhookService } from './services/webhooks/webhook-service'
+import { ConfigSyncService } from './services/config-sync/config-sync-service'
 import { ConfigStore } from './storage/config-store'
-import { ProxyServer, type ProxyAccount, type ProxyConfig } from '../main/proxy'
-import { safeCreateProxyAgent } from '../main/proxy/systemProxy'
+import { ProxyServer, type ProxyAccount, type ProxyConfig } from '../core/proxy'
+import { safeCreateProxyAgent } from '../core/proxy/systemProxy'
 
 interface StandaloneOptions {
   host?: string
@@ -58,6 +60,7 @@ interface StandaloneRuntime {
   diagnosticsService: DiagnosticsService
   subscriptionService: SubscriptionService
   webhookService: WebhookService
+  configSyncService: ConfigSyncService
   server: LocalAdminServer
   info: LocalAdminServerInfo
   close(): Promise<void>
@@ -93,7 +96,20 @@ function openExternalUrl(url: string): Promise<void> {
         ? 'open'
         : 'xdg-open'
   const args = process.platform === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url]
+  return spawnDetached(command, args)
+}
 
+function openLocalPath(targetPath: string): Promise<void> {
+  const command =
+    process.platform === 'win32'
+      ? 'explorer.exe'
+      : process.platform === 'darwin'
+        ? 'open'
+        : 'xdg-open'
+  return spawnDetached(command, [targetPath])
+}
+
+function spawnDetached(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
       const child = spawn(command, args, {
@@ -127,7 +143,6 @@ export async function startStandaloneServer(
   const accountService = new AccountService({
     dataDir,
     encryptionKey: options.encryptionKey || DEFAULT_ENCRYPTION_KEY,
-    migrateFromElectronStore: false,
     emitEvent: (type, payload): void => {
       publishEvent(type, payload)
     },
@@ -160,6 +175,7 @@ export async function startStandaloneServer(
 
   const machineIdService = new MachineIdService()
   const kiroSettingsService = new KiroSettingsService({
+    openPath: openLocalPath,
     getAvailableModels: async () => ({ models: [] })
   })
   const kproxyService = new KProxyManagementService({
@@ -176,6 +192,11 @@ export async function startStandaloneServer(
   })
   const webhookService = new WebhookService({
     store: configStore
+  })
+  const configSyncService = new ConfigSyncService({
+    accountStore: accountService,
+    configStore,
+    webhookService
   })
 
   const proxyService = new ProxyService({
@@ -277,7 +298,8 @@ export async function startStandaloneServer(
       createKProxyRouter({ kproxyService }),
       createDiagnosticsRouter({ diagnosticsService }),
       createSubscriptionRouter({ subscriptionService }),
-      createWebhookRouter({ webhookService })
+      createWebhookRouter({ webhookService }),
+      createConfigSyncRouter({ configSyncService })
     ]
   })
 
@@ -295,6 +317,7 @@ export async function startStandaloneServer(
     diagnosticsService,
     subscriptionService,
     webhookService,
+    configSyncService,
     server,
     info,
     async close(): Promise<void> {
@@ -454,10 +477,23 @@ async function runSmoke(runtime: StandaloneRuntime): Promise<void> {
     throw new Error('Webhooks health check failed: ok is not true')
   }
 
+  const configSyncHealthResponse = await fetch(`${runtime.info.baseUrl}/api/config-sync/health`, {
+    headers: {
+      Authorization: `Bearer ${runtime.info.accessToken}`
+    }
+  })
+  if (!configSyncHealthResponse.ok) {
+    throw new Error(`Config sync health check failed: HTTP ${configSyncHealthResponse.status}`)
+  }
+  const configSyncHealthBody = (await configSyncHealthResponse.json()) as { ok?: boolean }
+  if (configSyncHealthBody.ok !== true) {
+    throw new Error('Config sync health check failed: ok is not true')
+  }
+
   console.log('[Standalone] Smoke check passed')
 }
 
-async function main(): Promise<void> {
+export async function runStandaloneMain(): Promise<void> {
   const smoke = process.argv.includes('--smoke')
   const runtime = await startStandaloneServer(getEnvOptions())
   let closing = false
@@ -493,7 +529,7 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void main().catch((error) => {
+  void runStandaloneMain().catch((error) => {
     console.error('[Standalone] Failed to start:', error)
     process.exit(1)
   })

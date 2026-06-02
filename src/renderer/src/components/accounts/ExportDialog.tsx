@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { useAccountsStore } from '@/store/accounts'
 import { useTranslation } from '@/hooks/useTranslation'
 import type { Account } from '@/types/account'
+import { exportTextFile } from '@/services/browser-files'
 
 type ExportFormat = 'json' | 'txt' | 'csv' | 'kami' | 'clipboard'
 
@@ -214,7 +215,7 @@ export function ExportDialog({ open, onClose, accounts, selectedCount }: ExportD
     }
     const filename = `kiro-accounts-${new Date().toISOString().slice(0, 10)}.${extensions[selectedFormat]}`
 
-    const success = await window.api.exportToFile(content, filename)
+    const success = exportTextFile(content, filename, 'text/plain;charset=utf-8')
     if (success) {
       alert(isEn ? `Exported ${count} accounts` : `已导出 ${count} 个账号`)
       onClose()

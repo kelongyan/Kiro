@@ -1,5 +1,5 @@
 import { Router, writeJsonResponse } from '../router'
-import type { DeviceIdMapping, KProxyConfig } from '../../../main/kproxy'
+import type { DeviceIdMapping, KProxyConfig } from '../../../core/kproxy'
 import type { KProxyManagementService } from '../../services/kproxy/kproxy-service'
 
 export interface KProxyControllerDeps {

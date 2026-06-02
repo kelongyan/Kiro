@@ -3,7 +3,7 @@ import {
   newConfig,
   type RegistrationConfig,
   type RegistrationResult
-} from '../../../main/registration'
+} from '../../../core/registration'
 
 const MANUAL_KEY = '__manual__'
 

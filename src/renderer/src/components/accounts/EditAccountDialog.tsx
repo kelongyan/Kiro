@@ -4,6 +4,8 @@ import { Button, Card, CardContent, CardHeader, CardTitle } from '../ui'
 import { useAccountsStore } from '@/store'
 import { useTranslation } from '@/hooks/useTranslation'
 import type { Account, SubscriptionType } from '@/types/account'
+import { verifyAccountCredentials } from '@/services/local-admin-accounts'
+import { loadKiroCredentials } from '@/services/local-admin-kiro-local'
 
 interface EditAccountDialogProps {
   open: boolean
@@ -90,7 +92,7 @@ export function EditAccountDialog({ open, onOpenChange, account }: EditAccountDi
   // 从本地配置导入
   const handleImportFromLocal = async () => {
     try {
-      const result = await window.api.loadKiroCredentials()
+      const result = await loadKiroCredentials()
       if (result.success && result.data) {
         setRefreshToken(result.data.refreshToken)
         setClientId(result.data.clientId)
@@ -121,7 +123,7 @@ export function EditAccountDialog({ open, onOpenChange, account }: EditAccountDi
     setError(null)
 
     try {
-      const result = await window.api.verifyAccountCredentials({
+      const result = await verifyAccountCredentials({
         refreshToken,
         clientId,
         clientSecret,

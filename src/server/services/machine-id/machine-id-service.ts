@@ -11,7 +11,7 @@ import {
   type AdminRestartInfo,
   type MachineIdResult,
   type OSType
-} from '../../../main/machineId'
+} from '../../../core/machine-id'
 
 export class MachineIdService {
   getOSType(): OSType {

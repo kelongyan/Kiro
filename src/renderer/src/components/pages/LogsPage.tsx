@@ -16,6 +16,7 @@ import {
 import { Button, Badge, Input } from '../ui'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import * as proxyAdmin from '../../services/local-admin-proxy'
 
 interface LogEntry {
   timestamp: string
@@ -81,8 +82,8 @@ export function LogsPage() {
     try {
       const fetchCount = displayLimit === 'all' ? undefined : parseInt(displayLimit) || undefined
       const [allLogs, count] = await Promise.all([
-        window.api.proxyGetLogs(fetchCount),
-        window.api.proxyGetLogsCount()
+        proxyAdmin.proxyGetLogs(fetchCount),
+        proxyAdmin.proxyGetLogsCount()
       ])
       const newLogs = allLogs as LogEntry[]
       setLogs(newLogs)
@@ -136,7 +137,7 @@ export function LogsPage() {
   }
 
   const handleClear = async () => {
-    await window.api.proxyClearLogs()
+    await proxyAdmin.proxyClearLogs()
     setLogs([])
     setTotalCount(0)
     setNewLogCount(0)

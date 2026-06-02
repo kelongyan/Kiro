@@ -5,6 +5,13 @@ import { useAccountsStore } from '@/store/accounts'
 import { useTranslation } from '@/hooks/useTranslation'
 import type { Account, AccountTag, AccountGroup } from '@/types/account'
 import {
+  logoutAccount,
+  switchAccount,
+  switchAccountCli
+} from '@/services/local-admin-kiro-local'
+import * as proxyAdmin from '@/services/local-admin-proxy'
+import * as subscriptionsAdmin from '@/services/local-admin-subscriptions'
+import {
   Check,
   RefreshCw,
   Trash2,
@@ -193,7 +200,7 @@ export const AccountCard = memo(function AccountCard({
     if (isClearingSuspended) return
     setIsClearingSuspended(true)
     try {
-      const result = await window.api.proxyClearAccountSuspended(account.id)
+      const result = await proxyAdmin.proxyClearAccountSuspended(account.id)
       if (result.success) {
         // 前端 store 同步：status → active, lastError → undefined
         updateAccountStatus(account.id, 'active', undefined)
@@ -262,14 +269,14 @@ export const AccountCard = memo(function AccountCard({
 
     // 根据 switchTarget 设置决定切换目标
     if (switchTarget === 'ide' || switchTarget === 'both') {
-      const result = await window.api.switchAccount(idePayload)
+      const result = await switchAccount(idePayload)
       if (!result.success) {
         success = false
         errorMsg = result.error || ''
       }
     }
     if (switchTarget === 'cli' || switchTarget === 'both') {
-      const result = await window.api.switchAccountCli(cliPayload)
+      const result = await switchAccountCli(cliPayload)
       if (!result.success && switchTarget === 'cli') {
         success = false
         errorMsg = result.error || ''
@@ -299,7 +306,7 @@ export const AccountCard = memo(function AccountCard({
       return
     }
 
-    const result = await window.api.logoutAccount()
+    const result = await logoutAccount()
     if (result.success) {
       // 取消当前账号的激活状态
       setActiveAccount(null)
@@ -420,7 +427,7 @@ export const AccountCard = memo(function AccountCard({
     setSubscriptionLoading(true)
     try {
       // 统一先获取可用订阅列表
-      const result = await window.api.accountGetSubscriptions(
+      const result = await subscriptionsAdmin.accountGetSubscriptions(
         account.credentials.accessToken,
         account.credentials?.region,
         account.profileArn,
@@ -454,7 +461,7 @@ export const AccountCard = memo(function AccountCard({
     setPaymentLoading(true)
     setSubscriptionError(null)
     try {
-      const result = await window.api.accountGetSubscriptionUrl(
+      const result = await subscriptionsAdmin.accountGetSubscriptionUrl(
         account.credentials.accessToken,
         planName,
         account.credentials?.region,
@@ -474,7 +481,7 @@ export const AccountCard = memo(function AccountCard({
         setTimeout(async () => {
           setShowSubscriptionDialog(false)
           setSubscriptionSuccess(null)
-          await window.api.openSubscriptionWindow(urlToOpen)
+          await subscriptionsAdmin.openSubscriptionWindow(urlToOpen)
         }, 800)
       } else {
         const errorMsg = result.error || (isEn ? 'Failed to get payment URL' : '获取支付链接失败')
@@ -498,7 +505,7 @@ export const AccountCard = memo(function AccountCard({
     setPaymentLoading(true)
     setSubscriptionError(null)
     try {
-      const result = await window.api.accountGetSubscriptionUrl(
+      const result = await subscriptionsAdmin.accountGetSubscriptionUrl(
         account.credentials.accessToken,
         undefined,
         account.credentials?.region,
@@ -510,7 +517,7 @@ export const AccountCard = memo(function AccountCard({
       )
       if (result.success && result.url) {
         setShowSubscriptionDialog(false)
-        await window.api.openSubscriptionWindow(result.url)
+        await subscriptionsAdmin.openSubscriptionWindow(result.url)
       } else {
         // 显示错误信息
         const errorMsg =

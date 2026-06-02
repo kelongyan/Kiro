@@ -28,6 +28,8 @@ import {
   subscribeSubscriptionLinks,
   type SubscriptionLink
 } from './subscription-links'
+import { diagnoseHttpProbe } from '@/services/local-admin-diagnostics'
+import * as subscriptionsAdmin from '@/services/local-admin-subscriptions'
 
 /**
  * 订阅升级前预检：从一个账号视角判断它是否可参与批量升级
@@ -248,7 +250,7 @@ export function SubscriptionPage() {
     const acc = upgradeableAccounts[0]!
 
     try {
-      const result = await window.api.accountGetSubscriptions(
+      const result = await subscriptionsAdmin.accountGetSubscriptions(
         acc.credentials.accessToken,
         acc.credentials?.region,
         acc.profileArn,
@@ -299,7 +301,7 @@ export function SubscriptionPage() {
       setLinks((prev) => prev.map((link, i) => (i === idx ? { ...link, status: 'loading' } : link)))
 
       try {
-        const tokenResult = await window.api.accountGetSubscriptionUrl(
+        const tokenResult = await subscriptionsAdmin.accountGetSubscriptionUrl(
           acc.credentials.accessToken,
           selectedPlanType,
           acc.credentials?.region,
@@ -463,7 +465,7 @@ export function SubscriptionPage() {
 
   // 打开单个链接
   const handleOpenLink = async (url: string) => {
-    await window.api.openSubscriptionWindow(url)
+    await subscriptionsAdmin.openSubscriptionWindow(url)
   }
 
   // 重新生成单个链接（链接过期时调用）
@@ -481,7 +483,7 @@ export function SubscriptionPage() {
       )
     )
     try {
-      const r = await window.api.accountGetSubscriptionUrl(
+      const r = await subscriptionsAdmin.accountGetSubscriptionUrl(
         acc.credentials.accessToken,
         selectedPlanType,
         acc.credentials?.region,
@@ -546,7 +548,7 @@ export function SubscriptionPage() {
           const l = realProbe[idx]
           if (!l.url) continue
           try {
-            const r = await window.api.diagnoseHttpProbe({
+            const r = await diagnoseHttpProbe({
               url: l.url,
               method: 'HEAD',
               timeoutMs: 6000
@@ -594,7 +596,7 @@ export function SubscriptionPage() {
   const handleBatchOpen = async (mode: 'selected' | 'all') => {
     const targetLinks = getTargetLinks(mode)
     await Promise.all(
-      targetLinks.filter((l) => l.url).map((l) => window.api.openSubscriptionWindow(l.url!))
+      targetLinks.filter((l) => l.url).map((l) => subscriptionsAdmin.openSubscriptionWindow(l.url!))
     )
   }
 
@@ -669,7 +671,7 @@ export function SubscriptionPage() {
       )
 
       try {
-        const res = await window.api.accountSetOverage(
+        const res = await subscriptionsAdmin.accountSetOverage(
           acc.credentials.accessToken,
           'ENABLED',
           acc.credentials?.region,
@@ -1154,7 +1156,7 @@ export function SubscriptionPage() {
                             <button
                               onClick={async () => {
                                 // 复用 fetchSubscriptionToken 获取门户链接，在浏览器无痕中打开
-                                const r = await window.api.accountGetSubscriptionUrl(
+                                const r = await subscriptionsAdmin.accountGetSubscriptionUrl(
                                   acc.credentials.accessToken,
                                   undefined,
                                   acc.credentials?.region,
@@ -1165,7 +1167,7 @@ export function SubscriptionPage() {
                                   acc.id
                                 )
                                 if (r.success && r.url) {
-                                  await window.api.openSubscriptionWindow(r.url)
+                                  await subscriptionsAdmin.openSubscriptionWindow(r.url)
                                 } else {
                                   alert(isEn ? `Failed: ${r.error}` : `失败: ${r.error}`)
                                 }
@@ -1192,7 +1194,7 @@ export function SubscriptionPage() {
                                     )
                                   )
                                     return
-                                  const r = await window.api.accountSetOverage(
+                                  const r = await subscriptionsAdmin.accountSetOverage(
                                     acc.credentials.accessToken,
                                     'DISABLED',
                                     acc.credentials?.region,
@@ -1841,7 +1843,7 @@ function ManageSubscriptionsTab({
           const acc = targets[idx]
           if (!acc) continue
           try {
-            const r = await window.api.accountGetSubscriptionUrl(
+            const r = await subscriptionsAdmin.accountGetSubscriptionUrl(
               acc.credentials.accessToken,
               undefined,
               acc.credentials?.region,
@@ -1852,7 +1854,7 @@ function ManageSubscriptionsTab({
               acc.id
             )
             if (r.success && r.url) {
-              await window.api.openSubscriptionWindow(r.url)
+              await subscriptionsAdmin.openSubscriptionWindow(r.url)
               // 每个之间留 500ms，让浏览器有时间响应
               await new Promise((resolve) => setTimeout(resolve, 500))
             }
@@ -1895,7 +1897,7 @@ function ManageSubscriptionsTab({
           const acc = targets[idx]
           if (!acc) continue
           try {
-            const r = await window.api.accountSetOverage(
+            const r = await subscriptionsAdmin.accountSetOverage(
               acc.credentials.accessToken,
               'DISABLED',
               acc.credentials?.region,
@@ -2135,7 +2137,7 @@ function ManageSubscriptionsTab({
                     <span className="w-32 flex justify-center gap-1">
                       <button
                         onClick={async () => {
-                          const r = await window.api.accountGetSubscriptionUrl(
+                          const r = await subscriptionsAdmin.accountGetSubscriptionUrl(
                             acc.credentials.accessToken,
                             undefined,
                             acc.credentials?.region,
@@ -2146,7 +2148,7 @@ function ManageSubscriptionsTab({
                             acc.id
                           )
                           if (r.success && r.url) {
-                            await window.api.openSubscriptionWindow(r.url)
+                            await subscriptionsAdmin.openSubscriptionWindow(r.url)
                           } else {
                             alert(isEn ? `Failed: ${r.error}` : `失败: ${r.error}`)
                           }
@@ -2325,7 +2327,7 @@ function SubscribedRow({
       <span className="w-32 flex justify-center gap-1">
         <button
           onClick={async () => {
-            const r = await window.api.accountGetSubscriptionUrl(
+            const r = await subscriptionsAdmin.accountGetSubscriptionUrl(
               acc.credentials.accessToken,
               undefined,
               acc.credentials?.region,
@@ -2336,7 +2338,7 @@ function SubscribedRow({
               acc.id
             )
             if (r.success && r.url) {
-              await window.api.openSubscriptionWindow(r.url)
+              await subscriptionsAdmin.openSubscriptionWindow(r.url)
             } else {
               alert(isEn ? `Failed: ${r.error}` : `失败: ${r.error}`)
             }

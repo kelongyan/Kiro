@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import * as proxyAdmin from '../../services/local-admin-proxy'
 
 interface LogEntry {
   timestamp: string
@@ -136,7 +137,7 @@ export function ProxyDetailedLogsDialog({ open, onOpenChange }: ProxyDetailedLog
 
   const loadLogs = useCallback(async () => {
     try {
-      const result = await window.api.proxyGetLogs()
+      const result = await proxyAdmin.proxyGetLogs()
       setLogs(result)
     } catch (error) {
       console.error('Failed to load logs:', error)
@@ -195,7 +196,7 @@ export function ProxyDetailedLogsDialog({ open, onOpenChange }: ProxyDetailedLog
 
   const handleClearLogs = async () => {
     try {
-      await window.api.proxyClearLogs()
+      await proxyAdmin.proxyClearLogs()
       setLogs([])
     } catch (error) {
       console.error('Failed to clear logs:', error)

@@ -17,6 +17,8 @@ import {
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Select } from '../ui'
 import { useAccountsStore } from '../../store/accounts'
 import { cn } from '@/lib/utils'
+import * as proxyAdmin from '@/services/local-admin-proxy'
+import { accountGetModels } from '@/services/local-admin-accounts'
 
 type ClientTarget = 'claudeCode' | 'opencode' | 'codex' | 'gemini' | 'hermes' | 'openclaw'
 
@@ -140,7 +142,7 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
     setResults([])
     try {
       // 优先从代理服务获取模型（与"查看模型"一致）
-      const proxyModels = await window.api.proxyGetModels()
+      const proxyModels = await proxyAdmin.proxyGetModels()
       if (proxyModels.success && proxyModels.models.length > 0) {
         setModels(proxyModels.models)
         setSelectedModelId((current) =>
@@ -160,7 +162,7 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
               (item) => item.status === 'active' && item.credentials?.accessToken
             )
       if (account) {
-        const accountModels = await window.api.accountGetModels(
+        const accountModels = await accountGetModels(
           account.credentials.accessToken,
           account.credentials.region || 'us-east-1',
           account.profileArn,
@@ -225,7 +227,7 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
     setError(null)
     setResults([])
     try {
-      const result = await window.api.proxyConfigureClients({
+      const result = await proxyAdmin.proxyConfigureClients({
         clients: selectedClients,
         modelId: selectedModelId,
         modelName: selectedModel?.name,

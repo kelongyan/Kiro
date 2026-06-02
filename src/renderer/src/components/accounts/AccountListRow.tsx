@@ -4,6 +4,12 @@ import { useTranslation } from '@/hooks/useTranslation'
 import { Badge, Button } from '../ui'
 import type { Account, AccountTag, AccountGroup } from '@/types/account'
 import {
+  logoutAccount,
+  switchAccount,
+  switchAccountCli
+} from '@/services/local-admin-kiro-local'
+import * as proxyAdmin from '@/services/local-admin-proxy'
+import {
   Check,
   RefreshCw,
   Trash2,
@@ -176,14 +182,14 @@ function AccountListRowComponent({
       let errorMsg = ''
       const target = switchTarget || 'ide'
       if (target === 'ide' || target === 'both') {
-        const result = await window.api.switchAccount(idePayload)
+        const result = await switchAccount(idePayload)
         if (!result.success) {
           success = false
           errorMsg = result.error || ''
         }
       }
       if (target === 'cli' || target === 'both') {
-        const result = await window.api.switchAccountCli(cliPayload)
+        const result = await switchAccountCli(cliPayload)
         if (!result.success && target === 'cli') {
           success = false
           errorMsg = result.error || ''
@@ -237,7 +243,7 @@ function AccountListRowComponent({
         )
       )
         return
-      const result = await window.api.logoutAccount()
+      const result = await logoutAccount()
       if (result.success) {
         setActiveAccount(null)
       } else {
@@ -253,7 +259,7 @@ function AccountListRowComponent({
       if (isClearingSuspended) return
       setIsClearingSuspended(true)
       try {
-        const result = await window.api.proxyClearAccountSuspended(account.id)
+        const result = await proxyAdmin.proxyClearAccountSuspended(account.id)
         if (result.success) {
           updateAccountStatus(account.id, 'active', undefined)
         }

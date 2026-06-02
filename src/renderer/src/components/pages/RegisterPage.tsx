@@ -52,6 +52,18 @@ import {
   totalVariantCount,
   splitEmail
 } from '@/lib/dotVariants'
+import { onLocalAdminEvent } from '@/services/local-admin-events'
+import { verifyAccountCredentials } from '@/services/local-admin-accounts'
+import {
+  registrationCancel,
+  registrationManualPhase1,
+  registrationManualPhase2,
+  registrationManualPhase3,
+  registrationStartAuto,
+  registrationStatus,
+  type RegistrationStartConfig
+} from '@/services/local-admin-registration'
+import * as subscriptionsAdmin from '@/services/local-admin-subscriptions'
 
 // 失败错误码归类：用于失败重试队列的过滤
 function classifyError(
@@ -464,18 +476,18 @@ export function RegisterPage(): React.JSX.Element {
 
   // 监听注册日志
   useEffect(() => {
-    const unsub = window.api.onRegistrationLog((msg) => {
-      addLog(msg)
+    const unsub = onLocalAdminEvent('registration-log', ({ payload }) => {
+      addLog(payload.message)
     })
     return () => unsub()
   }, [addLog])
 
   // 页面挂载时检测注册流程状态
   useEffect(() => {
-    window.api.registrationStatus().then((res) => {
+    registrationStatus().then((res) => {
       if (res.inProgress && _phase === 'idle') {
         // 后端有流程但前端无状态（应用重启场景），取消残留
-        window.api.registrationCancel()
+        registrationCancel()
       }
     })
   }, [])
@@ -545,7 +557,7 @@ export function RegisterPage(): React.JSX.Element {
 
     const config: Record<string, string> = {}
     if (fullName.trim()) config.fullName = fullName.trim()
-    const res = await window.api.registrationManualPhase1(config)
+    const res = await registrationManualPhase1(config)
     if (!res.success) {
       addLog(`${t('register.logInitFailed')} ${res.error}`)
       setPhase('idle')
@@ -558,7 +570,7 @@ export function RegisterPage(): React.JSX.Element {
     if (preEmail) {
       setPhase('running')
       addLog(`${t('register.logSubmitEmail')} ${preEmail}`)
-      const phase2Res = await window.api.registrationManualPhase2(
+      const phase2Res = await registrationManualPhase2(
         preEmail,
         fullName.trim() || undefined
       )
@@ -577,7 +589,7 @@ export function RegisterPage(): React.JSX.Element {
     setPhase('running')
     addLog(`${t('register.logSubmitEmail')} ${email}`)
 
-    const res = await window.api.registrationManualPhase2(
+    const res = await registrationManualPhase2(
       email.trim(),
       fullName.trim() || undefined
     )
@@ -595,7 +607,7 @@ export function RegisterPage(): React.JSX.Element {
     setPhase('running')
     addLog(`${t('register.logSubmitOtp')} ${otp}`)
 
-    const res = await window.api.registrationManualPhase3(otp.trim())
+    const res = await registrationManualPhase3(otp.trim())
     if (res.success) {
       const regResult = res.result as RegResult
       setResult(regResult)
@@ -663,9 +675,7 @@ export function RegisterPage(): React.JSX.Element {
       config.tempMailPlusDomain = tempMailDomain
     }
 
-    const res = await window.api.registrationStartAuto(
-      config as Parameters<typeof window.api.registrationStartAuto>[0]
-    )
+    const res = await registrationStartAuto(config as RegistrationStartConfig)
     if (!res.success) {
       addLog(`${t('register.logStartFailed')} ${res.error}`)
       setPhase('idle')
@@ -675,7 +685,7 @@ export function RegisterPage(): React.JSX.Element {
   // ============ 取消 ============
 
   const cancel = async (): Promise<void> => {
-    await window.api.registrationCancel()
+    await registrationCancel()
     addLog(t('register.logCancelled'))
     setPhase('idle')
   }
@@ -686,7 +696,7 @@ export function RegisterPage(): React.JSX.Element {
     if (!result || result.status !== 'success' || !result.refreshToken) return
 
     try {
-      const verifyResult = await window.api.verifyAccountCredentials({
+      const verifyResult = await verifyAccountCredentials({
         refreshToken: result.refreshToken,
         clientId: result.clientId!,
         clientSecret: result.clientSecret!,
@@ -1331,7 +1341,7 @@ export function RegisterPage(): React.JSX.Element {
     async (regResult: RegResult): Promise<boolean> => {
       if (!regResult.refreshToken || !regResult.clientId || !regResult.clientSecret) return false
       try {
-        const verifyResult = await window.api.verifyAccountCredentials({
+        const verifyResult = await verifyAccountCredentials({
           refreshToken: regResult.refreshToken,
           clientId: regResult.clientId,
           clientSecret: regResult.clientSecret,
@@ -1430,7 +1440,7 @@ export function RegisterPage(): React.JSX.Element {
         addLog(
           `[Pro Link] ${email}: ${t('register.fetchingProLink')} (${proPlanType.replace('Q_DEVELOPER_STANDALONE_', '')})...`
         )
-        const result = await window.api.accountGetSubscriptionUrl(
+        const result = await subscriptionsAdmin.accountGetSubscriptionUrl(
           accessToken,
           proPlanType,
           regResult.region || 'us-east-1',
@@ -1526,9 +1536,11 @@ export function RegisterPage(): React.JSX.Element {
     ]
   )
 
-  // 覆盖原有的 onRegistrationComplete 监听
+  // 监听注册完成事件
   useEffect(() => {
-    const unsub = window.api.onRegistrationComplete(onRegComplete)
+    const unsub = onLocalAdminEvent('registration-complete', ({ payload }) => {
+      void onRegComplete(payload)
+    })
     return () => unsub()
   }, [onRegComplete])
 
@@ -1613,9 +1625,7 @@ export function RegisterPage(): React.JSX.Element {
   }, [mixedEnabledSources, mixedWeights, outlookData, tempMailDomain, tempMailEmail, tempMailEpin])
 
   // 构建自动模式配置
-  const buildAutoConfig = useCallback((): Parameters<
-    typeof window.api.registrationStartAuto
-  >[0] => {
+  const buildAutoConfig = useCallback((): RegistrationStartConfig => {
     const config: Record<string, unknown> = {}
 
     // 混合模式：每次调用挑一个子源
@@ -1631,7 +1641,7 @@ export function RegisterPage(): React.JSX.Element {
       config.useOutlook = true
       config.outlookData = outlookData
     }
-    return config as Parameters<typeof window.api.registrationStartAuto>[0]
+    return config as RegistrationStartConfig
   }, [mode, pickNextSource, outlookData, tempMailEmail, tempMailEpin, tempMailDomain])
 
   // 代理池：注册时为每个任务自动挑选一个出口代理（启用后生效）
@@ -1703,7 +1713,7 @@ export function RegisterPage(): React.JSX.Element {
           }
         }
 
-        const res = await window.api.registrationStartAuto(enrichedConfig as typeof config)
+        const res = await registrationStartAuto(enrichedConfig as RegistrationStartConfig)
 
         // 上报代理使用结果
         if (pickedProxy) {
@@ -1950,7 +1960,7 @@ export function RegisterPage(): React.JSX.Element {
       },
       onCancel: () => {
         batchAbort.current = true
-        window.api.registrationCancel()
+        registrationCancel()
       }
     })
     currentTaskCenterId.current = taskCenterId
@@ -2077,7 +2087,7 @@ export function RegisterPage(): React.JSX.Element {
 
   const stopBatch = (): void => {
     batchAbort.current = true
-    window.api.registrationCancel()
+    registrationCancel()
     if (currentTaskCenterId.current) {
       useTaskStore.getState().cancelTask(currentTaskCenterId.current)
       currentTaskCenterId.current = null
@@ -2105,7 +2115,7 @@ export function RegisterPage(): React.JSX.Element {
     const r = item.result
 
     try {
-      const verifyResult = await window.api.verifyAccountCredentials({
+      const verifyResult = await verifyAccountCredentials({
         refreshToken: r.refreshToken!,
         clientId: r.clientId!,
         clientSecret: r.clientSecret!,

@@ -20,6 +20,7 @@ import authorAvatar from '@/assets/author-avatar.png'
 import { useAccountsStore } from '@/store/accounts'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/hooks/useTranslation'
+import { getAppVersion } from '@/services/browser-runtime'
 
 export function AboutPage() {
   const [version, setVersion] = useState('...')
@@ -29,7 +30,7 @@ export function AboutPage() {
   const isEn = t('common.unknown') === 'Unknown'
 
   useEffect(() => {
-    window.api.getAppVersion().then(setVersion)
+    getAppVersion().then(setVersion)
   }, [])
 
   return (

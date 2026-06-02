@@ -1,5 +1,7 @@
 import { Router, writeJsonResponse } from '../router'
 import type { AccountService } from '../../services/accounts/account-service'
+import type { ProxyAccount } from '../../../core/proxy'
+import { fetchKiroModels } from '../../../core/proxy/kiroApi'
 
 // ============ 类型 ============
 
@@ -226,6 +228,63 @@ export function createAccountRouter(deps: AccountControllerDeps): Router {
     })
 
     writeJsonResponse(res, 200, { ok: result.success, ...result })
+  })
+
+  // POST /api/accounts/models - 获取单个账号可用模型列表
+  router.post('/api/accounts/models', async (_req, res, ctx) => {
+    const body = ctx.body as {
+      accessToken?: string
+      region?: string
+      profileArn?: string
+      machineId?: string
+      provider?: string
+      authMethod?: string
+      accountId?: string
+    }
+
+    if (!body?.accessToken) {
+      writeJsonResponse(res, 400, {
+        ok: false,
+        success: false,
+        error: '缺少 accessToken',
+        models: []
+      })
+      return
+    }
+
+    try {
+      const models = await fetchKiroModels({
+        id: body.accountId || 'model-list-request',
+        accessToken: body.accessToken,
+        region: body.region || 'us-east-1',
+        profileArn: body.profileArn,
+        machineId: body.machineId,
+        provider: body.provider,
+        authMethod: body.authMethod as ProxyAccount['authMethod']
+      } as ProxyAccount)
+
+      writeJsonResponse(res, 200, {
+        ok: true,
+        success: true,
+        models: models.map((model) => ({
+          id: model.modelId,
+          name: model.modelName,
+          description: model.description,
+          inputTypes: model.supportedInputTypes,
+          maxInputTokens: model.tokenLimits?.maxInputTokens,
+          maxOutputTokens: model.tokenLimits?.maxOutputTokens,
+          rateMultiplier: model.rateMultiplier,
+          rateUnit: model.rateUnit
+        }))
+      })
+    } catch (error) {
+      writeJsonResponse(res, 200, {
+        ok: false,
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get models',
+        models: []
+      })
+    }
   })
 
   return router

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Button } from '../ui'
 import { useTranslation } from '@/hooks/useTranslation'
 import { X, Save, Plus, Trash2 } from 'lucide-react'
+import { saveMcpServer } from '@/services/local-admin-kiro-settings'
 
 interface McpServer {
   command: string
@@ -64,7 +65,7 @@ export function McpServerEditor({ serverName, server, onClose, onSaved }: McpSer
       if (serverConfig.args?.length === 0) delete serverConfig.args
       if (Object.keys(serverConfig.env || {}).length === 0) delete serverConfig.env
 
-      const result = await window.api.saveMcpServer(
+      const result = await saveMcpServer(
         name.trim(),
         serverConfig,
         isEdit ? serverName : undefined

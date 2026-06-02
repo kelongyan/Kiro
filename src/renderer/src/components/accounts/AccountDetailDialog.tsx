@@ -20,6 +20,7 @@ import type { Account } from '@/types/account'
 import { cn } from '@/lib/utils'
 import { useAccountsStore } from '@/store/accounts'
 import { useTranslation } from '@/hooks/useTranslation'
+import { accountGetModels } from '@/services/local-admin-accounts'
 
 interface ModelInfo {
   id: string
@@ -115,8 +116,7 @@ export function AccountDetailDialog({
     if (open && account?.credentials?.accessToken) {
       setModelsLoading(true)
       setModelsError(null)
-      window.api
-        .accountGetModels(
+      accountGetModels(
           account.credentials.accessToken,
           account.credentials?.region,
           account.profileArn,

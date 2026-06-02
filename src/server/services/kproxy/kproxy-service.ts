@@ -12,7 +12,7 @@ import {
   type KProxyEvents,
   type KProxyService as CoreKProxyService,
   type KProxyStats
-} from '../../../main/kproxy'
+} from '../../../core/kproxy'
 
 export interface KProxyKeyValueStore {
   get(key: string): unknown

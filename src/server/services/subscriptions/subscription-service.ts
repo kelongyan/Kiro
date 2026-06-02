@@ -1,9 +1,9 @@
-import type { ProxyAccount } from '../../../main/proxy'
+import type { ProxyAccount } from '../../../core/proxy'
 import {
   fetchAvailableSubscriptions,
   fetchSubscriptionToken,
   setUserPreference
-} from '../../../main/proxy/kiroApi'
+} from '../../../core/proxy/kiroApi'
 
 export interface SubscriptionAccountInput {
   accessToken: string

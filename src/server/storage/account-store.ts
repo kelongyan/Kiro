@@ -1,6 +1,5 @@
-import { existsSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { mkdirSync } from 'fs'
 import { CryptoStore } from './crypto-store'
 
 // ============ 账号数据类型 ============
@@ -117,7 +116,7 @@ const DEFAULT_ENCRYPTION_KEY = 'kiro-account-manager-secret-key'
 /**
  * 账号数据存储服务。
  *
- * 封装 load/save/backup/migrate，替代原 electron-store 直操模式。
+ * 封装 load/save/backup，替代旧桌面存储直操模式。
  */
 export class AccountStore {
   private crypto: CryptoStore
@@ -149,7 +148,7 @@ export class AccountStore {
   // ============ 数据读写 ============
 
   /**
-   * 加载账号数据。优先从新加密存储读取，不存在时尝试从 electron-store 迁移。
+   * 加载账号数据。只读取当前加密存储。
    */
   load(): AccountData | null {
     const data = this.crypto.get('accountData') as AccountData | undefined
@@ -209,76 +208,6 @@ export class AccountStore {
 
   async flushBackupNow(): Promise<void> {
     await this.backup.flushBackupNow()
-  }
-
-  // ============ electron-store 迁移 ============
-
-  /**
-   * 从旧 electron-store 迁移数据到新加密存储。
-   *
-   * 仅在首次运行（新存储文件不存在）时触发。
-   * @returns true 表示迁移成功，false 表示无需迁移或迁移失败
-   */
-  async migrateFromElectronStore(): Promise<boolean> {
-    // 新存储已有数据，跳过迁移
-    if (this.load() != null) {
-      return false
-    }
-
-    // 检查迁移标记
-    const migratedFlag = join(this.dataDir, '.migrated-from-electron-store')
-    if (existsSync(migratedFlag)) {
-      return false
-    }
-
-    try {
-      // 动态导入 electron-store（仅在迁移时需要）
-      const Store = (await import('electron-store')).default
-      const oldStore = new Store({
-        name: 'kiro-accounts',
-        encryptionKey: DEFAULT_ENCRYPTION_KEY
-      })
-
-      const accountData = oldStore.get('accountData')
-      if (!accountData) {
-        console.log('[Migration] No account data found in electron-store')
-        return false
-      }
-
-      // 迁移所有相关 key
-      this.crypto.set('accountData', accountData)
-
-      // 迁移代理配置和统计
-      const keysToMigrate = [
-        'proxyConfig',
-        'usageApiType',
-        'useKProxyForApi',
-        'proxyTotalCredits',
-        'proxyInputTokens',
-        'proxyOutputTokens',
-        'proxyTotalRequests',
-        'proxySuccessRequests',
-        'proxyFailedRequests'
-      ]
-
-      for (const key of keysToMigrate) {
-        const value = oldStore.get(key)
-        if (value !== undefined) {
-          this.crypto.set(key, value)
-        }
-      }
-
-      this.lastSavedData = accountData as AccountData
-
-      // 写入迁移标记
-      writeFileSync(migratedFlag, new Date().toISOString(), 'utf-8')
-
-      console.log('[Migration] Successfully migrated data from electron-store')
-      return true
-    } catch (error) {
-      console.error('[Migration] Failed to migrate from electron-store:', error)
-      return false
-    }
   }
 
   // ============ 存储路径信息 ============

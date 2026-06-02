@@ -3,6 +3,10 @@ import { createPortal } from 'react-dom'
 import { Button } from '../ui'
 import { useTranslation } from '@/hooks/useTranslation'
 import { X, Save, RefreshCw } from 'lucide-react'
+import {
+  readKiroSteeringFile,
+  saveKiroSteeringFile
+} from '@/services/local-admin-kiro-settings'
 
 interface SteeringEditorProps {
   filename: string
@@ -23,7 +27,7 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
     setLoading(true)
     setError(null)
     try {
-      const result = await window.api.readKiroSteeringFile(filename)
+      const result = await readKiroSteeringFile(filename)
       if (result.success && result.content !== undefined) {
         setContent(result.content)
         setModified(false)
@@ -46,7 +50,7 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
     setSaving(true)
     setError(null)
     try {
-      const result = await window.api.saveKiroSteeringFile(filename, content)
+      const result = await saveKiroSteeringFile(filename, content)
       if (result.success) {
         setModified(false)
         onSaved?.()

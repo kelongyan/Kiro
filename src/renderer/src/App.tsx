@@ -5,6 +5,11 @@ import { renderPage } from './app/page-registry'
 import type { PageType } from './app/navigation'
 import { useWebhookStore } from './store/webhooks'
 import { useAccountsStore } from './store/accounts'
+import {
+  closeLocalAdminEvents,
+  connectLocalAdminEvents,
+  onLocalAdminEvent
+} from './services/local-admin-events'
 
 // 后台刷新结果批量化间隔：N 条结果合并到一次 set，避免 N 次 Map 全量复制 + 渲染抖动
 const BACKGROUND_RESULT_FLUSH_MS = 120
@@ -36,11 +41,19 @@ function App(): React.JSX.Element {
     }
   }, [loadFromStorage, startAutoTokenRefresh, stopAutoTokenRefresh])
 
-  // 反代关键事件 → 触发 webhook（v1.8 新增）
-  // 由 main/proxyServer 内置的 webhookTrigger 通过 IPC 推送过来，统一在 renderer 调 useWebhookStore
   useEffect(() => {
-    const unsubscribe = window.api.onProxyWebhookTrigger?.((event, payload) => {
+    connectLocalAdminEvents()
+    return () => {
+      closeLocalAdminEvents()
+    }
+  }, [])
+
+  // 反代关键事件 → 触发 webhook（v1.8 新增）
+  // 由 proxyServer 内置的 webhookTrigger 通过本地 SSE 推送过来，统一在 renderer 调 useWebhookStore
+  useEffect(() => {
+    const unsubscribe = onLocalAdminEvent('proxy-webhook-trigger', ({ payload: eventPayload }) => {
       try {
+        const { event, payload } = eventPayload
         const store = useWebhookStore.getState()
         // 映射反代事件名 → Webhook 事件类型
         const webhookEventMap: Record<string, 'risk-warning' | 'account-banned'> = {
@@ -97,8 +110,8 @@ function App(): React.JSX.Element {
       applyBackgroundRefreshResults(batch)
     }
 
-    const unsubscribe = window.api.onBackgroundRefreshResult((data) => {
-      refreshBuffer.push(data)
+    const unsubscribe = onLocalAdminEvent('background-refresh-result', ({ payload }) => {
+      refreshBuffer.push(payload)
       if (!flushTimer) {
         flushTimer = setTimeout(flush, BACKGROUND_RESULT_FLUSH_MS)
       }
@@ -125,8 +138,8 @@ function App(): React.JSX.Element {
       applyBackgroundCheckResults(batch)
     }
 
-    const unsubscribe = window.api.onBackgroundCheckResult((data) => {
-      checkBuffer.push(data)
+    const unsubscribe = onLocalAdminEvent('background-check-result', ({ payload }) => {
+      checkBuffer.push(payload)
       if (!flushTimer) {
         flushTimer = setTimeout(flush, BACKGROUND_RESULT_FLUSH_MS)
       }
@@ -143,7 +156,7 @@ function App(): React.JSX.Element {
   // 监听反代账号被封禁事件（TEMPORARILY_SUSPENDED / AccountSuspendedException）
   // 反代触发后，把封禁状态同步到 store 让 UI 显示
   useEffect(() => {
-    const unsubscribe = window.api.onProxyAccountSuspended((info) => {
+    const unsubscribe = onLocalAdminEvent('proxy-account-suspended', ({ payload: info }) => {
       console.warn(`[App] Account suspended via proxy: ${info.email || info.id} (${info.reason})`)
       updateAccountStatus(info.id, 'error', `[${info.reason}] ${info.message}`)
     })

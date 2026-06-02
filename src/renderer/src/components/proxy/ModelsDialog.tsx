@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '../ui'
 import { cn } from '@/lib/utils'
+import * as proxyAdmin from '@/services/local-admin-proxy'
 
 interface ModelInfo {
   id: string
@@ -66,7 +67,7 @@ export function ModelsDialog({
     setLoading(true)
     setError(null)
     try {
-      const result = await window.api.proxyGetModels()
+      const result = await proxyAdmin.proxyGetModels()
       if (result.success) {
         setModels(result.models)
         setFromCache(result.fromCache || false)

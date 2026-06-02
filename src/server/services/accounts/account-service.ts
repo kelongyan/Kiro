@@ -97,8 +97,6 @@ export interface AccountServiceDeps {
   dataDir: string
   /** 加密密码（可选） */
   encryptionKey?: string
-  /** 是否尝试从旧 electron-store 迁移数据，默认 true */
-  migrateFromElectronStore?: boolean
   /** 发布事件 */
   emitEvent: (type: string, payload: unknown) => void
   /** 获取全局网络代理 agent */
@@ -145,7 +143,6 @@ export class AccountService {
   private store: AccountStore
   private deps: AccountServiceDeps
   private tokenRefreshDeps: TokenRefreshDeps
-  private migrationPromise: Promise<boolean>
 
   constructor(deps: AccountServiceDeps) {
     this.deps = deps
@@ -161,16 +158,10 @@ export class AccountService {
         createProxyAgent: deps.createProxyAgent
       }
     }
-
-    // 尝试从 electron-store 迁移。standalone 纯 Node 入口可关闭，避免加载 Electron 依赖。
-    this.migrationPromise =
-      deps.migrateFromElectronStore === false
-        ? Promise.resolve(false)
-        : this.store.migrateFromElectronStore()
   }
 
   async initialize(): Promise<void> {
-    await this.migrationPromise
+    return Promise.resolve()
   }
 
   // ============ 存储 ============

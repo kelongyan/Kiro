@@ -23,6 +23,31 @@ import type {
 } from '../types/proxy'
 import { DEFAULT_PROXY_POOL_CONFIG } from '../types/proxy'
 import { useWebhookStore, type WebhookEvent, type WebhookMessage } from './webhooks'
+import {
+  backgroundBatchCheck as backgroundBatchCheckViaHttp,
+  backgroundBatchRefresh as backgroundBatchRefreshViaHttp,
+  checkAccountStatus as checkAccountStatusViaHttp,
+  loadAccounts as loadAccountsViaHttp,
+  refreshAccountToken as refreshAccountTokenViaHttp,
+  saveAccounts as saveAccountsViaHttp,
+  verifyAccountCredentials
+} from '../services/local-admin-accounts'
+import {
+  getLocalActiveAccount as getLocalActiveAccountViaHttp,
+  loadKiroCredentials as loadKiroCredentialsViaHttp,
+  switchAccount as switchKiroAccountViaHttp,
+  switchAccountCli as switchKiroAccountCliViaHttp
+} from '../services/local-admin-kiro-local'
+import {
+  machineIdGenerateRandom,
+  machineIdGetCurrent,
+  machineIdSet
+} from '../services/local-admin-machine-id'
+import {
+  accountSetProxyBinding,
+  proxyPoolValidate
+} from '../services/local-admin-diagnostics'
+import { getAppVersion, setProxySettings } from '../services/browser-runtime'
 
 // ============================================
 // 账号管理 Store
@@ -95,9 +120,39 @@ type SetFn = (
   partial: Partial<AccountsState> | ((state: AccountsState) => Partial<AccountsState>)
 ) => void
 
+interface StoredAccountsData {
+  accounts?: Record<string, Account>
+  groups?: Record<string, AccountGroup>
+  tags?: Record<string, AccountTag>
+  activeAccountId?: string | null
+  autoRefreshEnabled?: boolean
+  autoRefreshInterval?: number
+  autoRefreshConcurrency?: number
+  autoRefreshSyncInfo?: boolean
+  statusCheckInterval?: number
+  privacyMode?: boolean
+  usagePrecision?: boolean
+  proxyEnabled?: boolean
+  proxyUrl?: string
+  autoSwitchEnabled?: boolean
+  autoSwitchThreshold?: number
+  autoSwitchInterval?: number
+  switchTarget?: AccountsState['switchTarget']
+  theme?: AccountsState['theme']
+  darkMode?: boolean
+  language?: AccountsState['language']
+  machineIdConfig?: AccountsState['machineIdConfig']
+  accountMachineIds?: AccountsState['accountMachineIds']
+  machineIdHistory?: AccountsState['machineIdHistory']
+  proxyPool?: Record<string, ProxyEntry>
+  proxyPoolConfig?: Partial<ProxyPoolConfig>
+  proxyPoolCursor?: number
+  accountProxyBindings?: Record<string, string>
+}
+
 async function syncLocalSsoAccountAsync(get: () => AccountsStore, set: SetFn): Promise<void> {
   try {
-    const localResult = await window.api.getLocalActiveAccount()
+    const localResult = await getLocalActiveAccountViaHttp()
     if (!localResult.success || !localResult.data?.refreshToken) return
 
     const localRefreshToken = localResult.data.refreshToken
@@ -133,10 +188,10 @@ async function syncLocalSsoAccountAsync(get: () => AccountsStore, set: SetFn): P
 
     // 未找到匹配账号，尝试自动导入（网络请求）
     console.log('[Store] Local account not found in app, importing...')
-    const importResult = await window.api.loadKiroCredentials()
+    const importResult = await loadKiroCredentialsViaHttp()
     if (!importResult.success || !importResult.data) return
 
-    const verifyResult = await window.api.verifyAccountCredentials({
+    const verifyResult = await verifyAccountCredentials({
       refreshToken: importResult.data.refreshToken,
       clientId: importResult.data.clientId || '',
       clientSecret: importResult.data.clientSecret || '',
@@ -243,6 +298,15 @@ function isBannedAccountError(error?: string): boolean {
     return false
   }
   return false
+}
+
+function getLegacyErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'string' && error) return error
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message) return message
+  }
+  return fallback
 }
 
 // 自动换号定时器
@@ -741,7 +805,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
           if (!boundMachineId) {
             // 如果没有绑定机器码，为该账户生成一个
-            boundMachineId = await window.api.machineIdGenerateRandom()
+            boundMachineId = await machineIdGenerateRandom()
             get().bindMachineIdToAccount(id, boundMachineId)
           }
 
@@ -1349,7 +1413,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
     try {
       // 通过主进程调用 Kiro API 刷新 Token（避免 CORS）
-      const result = await window.api.refreshAccountToken(account)
+      const result = await refreshAccountTokenViaHttp(account)
 
       if (result.success && result.data) {
         set((state) => {
@@ -1375,13 +1439,14 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
         get().saveToStorage()
         return true
       } else {
-        updateAccountStatus(id, 'error', result.error?.message)
+        const errorMessage = getLegacyErrorMessage(result.error, 'Token 刷新失败')
+        updateAccountStatus(id, 'error', errorMessage)
         // 触发 webhook：Token 刷新失败
         triggerWebhook('token-expired', {
           title: 'Token 刷新失败',
           message: `账号 ${account.email} Token 刷新失败`,
           level: 'warn',
-          fields: { 邮箱: account.email, 错误: result.error?.message || '-' }
+          fields: { 邮箱: account.email, 错误: errorMessage || '-' }
         })
         return false
       }
@@ -1435,7 +1500,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     )
 
     // 使用后台刷新 API（不阻塞 UI）
-    const result = await window.api.backgroundBatchRefresh(
+    const result = await backgroundBatchRefreshViaHttp(
       accountsToRefresh,
       autoRefreshConcurrency
     )
@@ -1458,7 +1523,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
     try {
       // 通过主进程调用 Kiro API 获取状态（避免 CORS）
-      const result = await window.api.checkAccountStatus(account)
+      const result = await checkAccountStatusViaHttp(account)
 
       if (result.success && result.data) {
         set((state) => {
@@ -1601,7 +1666,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     )
 
     // 使用后台检查 API（只检查状态，不刷新 Token）
-    const result = await window.api.backgroundBatchCheck(accountsToCheck, autoRefreshConcurrency)
+    const result = await backgroundBatchCheckViaHttp(accountsToCheck, autoRefreshConcurrency)
 
     return {
       success: result.successCount,
@@ -1681,10 +1746,10 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
     try {
       // 获取应用版本号
-      const appVersion = await window.api.getAppVersion()
+      const appVersion = await getAppVersion()
       set({ appVersion })
 
-      const data = await window.api.loadAccounts()
+      const data = await loadAccountsViaHttp<StoredAccountsData>()
 
       if (data) {
         const accounts = new Map(Object.entries(data.accounts ?? {}) as [string, Account][])
@@ -1846,7 +1911,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
     saveInFlight = (async () => {
       try {
-        await window.api.saveAccounts({
+        await saveAccountsViaHttp({
           accounts: Object.fromEntries(accounts),
           groups: Object.fromEntries(groups),
           tags: Object.fromEntries(tags),
@@ -1957,7 +2022,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     get().saveToStorage()
     // 通知主进程更新代理设置，并用规范化后的 URL 回写 store
     try {
-      const result = await window.api.setProxy?.(enabled, targetUrl)
+      const result = await setProxySettings(enabled, targetUrl)
       if (result?.normalizedUrl && result.normalizedUrl !== targetUrl) {
         set({ proxyUrl: result.normalizedUrl })
         get().saveToStorage()
@@ -2156,7 +2221,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
         const { switchTarget: target } = get()
         const creds = availableAccount.credentials
         if (target === 'ide' || target === 'both') {
-          await window.api.switchAccount({
+          await switchKiroAccountViaHttp({
             accessToken: creds.accessToken || '',
             refreshToken: creds.refreshToken || '',
             clientId: creds.clientId || '',
@@ -2169,8 +2234,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
           })
         }
         if (target === 'cli' || target === 'both') {
-          window.api
-            .switchAccountCli?.({
+          switchKiroAccountCliViaHttp({
               accessToken: creds.accessToken || '',
               refreshToken: creds.refreshToken || '',
               clientId: creds.clientId,
@@ -2418,7 +2482,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     )
 
     // 调用主进程后台刷新，不等待结果（通过 IPC 事件接收）
-    window.api.backgroundBatchRefresh(
+    void backgroundBatchRefreshViaHttp(
       accountsToRefresh,
       autoRefreshConcurrency,
       autoRefreshSyncInfo
@@ -2767,7 +2831,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
   refreshCurrentMachineId: async () => {
     try {
-      const result = await window.api.machineIdGetCurrent()
+      const result = await machineIdGetCurrent()
       if (result.success && result.machineId) {
         set({ currentMachineId: result.machineId })
 
@@ -2791,10 +2855,10 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     }
 
     // 生成新机器码（如果未提供）
-    const machineIdToSet = newMachineId || (await window.api.machineIdGenerateRandom())
+    const machineIdToSet = newMachineId || (await machineIdGenerateRandom())
 
     try {
-      const result = await window.api.machineIdSet(machineIdToSet)
+      const result = await machineIdSet(machineIdToSet)
 
       if (result.success) {
         // 更新状态
@@ -2834,7 +2898,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     }
 
     try {
-      const result = await window.api.machineIdSet(originalMachineId)
+      const result = await machineIdSet(originalMachineId)
 
       if (result.success) {
         set((s) => ({
@@ -3108,7 +3172,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
     let result: ProxyValidationResult
     try {
-      result = await window.api.proxyPoolValidate({
+      result = await proxyPoolValidate({
         url: entry.url,
         testUrl: proxyPoolConfig.testUrl,
         timeoutMs: proxyPoolConfig.testTimeoutMs
@@ -3397,7 +3461,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 function syncAccountProxyToMain(accountId: string): void {
   try {
     const url = useAccountsStore.getState().getAccountProxyUrl(accountId)
-    void window.api.accountSetProxyBinding?.(accountId, url)
+    void accountSetProxyBinding(accountId, url)
   } catch (err) {
     console.warn('[Store] Failed to sync account proxy binding to main:', err)
   }

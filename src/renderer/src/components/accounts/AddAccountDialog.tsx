@@ -4,6 +4,22 @@ import { useAccountsStore } from '@/store/accounts'
 import { useTranslation } from '@/hooks/useTranslation'
 import type { SubscriptionType } from '@/types/account'
 import { X, Loader2, Download, Copy, Check, ExternalLink, Info, EyeOff } from 'lucide-react'
+import {
+  cancelBuilderIdLogin,
+  cancelIamSsoLogin,
+  cancelSocialLogin,
+  exchangeSocialToken,
+  importFromSsoToken,
+  pollBuilderIdAuth,
+  pollIamSsoAuth,
+  startBuilderIdLogin,
+  startIamSsoLogin,
+  startSocialLogin,
+  verifyAccountCredentials
+} from '@/services/local-admin-accounts'
+import { loadKiroCredentials } from '@/services/local-admin-kiro-local'
+import { onLocalAdminEvent } from '@/services/local-admin-events'
+import { openExternalUrl } from '@/services/browser-runtime'
 
 interface AddAccountDialogProps {
   isOpen: boolean
@@ -186,7 +202,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
 
       try {
         // 验证凭证并获取账号信息
-        const result = await window.api.verifyAccountCredentials({
+        const result = await verifyAccountCredentials({
           refreshToken: tokenData.refreshToken,
           clientId: tokenData.clientId || '',
           clientSecret: tokenData.clientSecret || '',
@@ -274,7 +290,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
   useEffect(() => {
     if (!isLoggingIn || loginType === 'builderid') return
 
-    const unsubscribe = window.api.onSocialAuthCallback(async (data) => {
+    const unsubscribe = onLocalAdminEvent('social-auth-callback', async ({ payload: data }) => {
       console.log('[AddAccountDialog] Social auth callback:', data)
 
       if (data.error) {
@@ -285,7 +301,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
 
       if (data.code && data.state) {
         try {
-          const result = await window.api.exchangeSocialToken(data.code, data.state)
+          const result = await exchangeSocialToken(data.code, data.state)
           if (result.success) {
             await handleLoginSuccess({
               accessToken: result.accessToken!,
@@ -314,7 +330,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
     setBuilderIdLoginData(null)
 
     try {
-      const result = await window.api.startBuilderIdLogin(region)
+      const result = await startBuilderIdLogin(region)
 
       if (result.success && result.userCode && result.verificationUri) {
         setBuilderIdLoginData({
@@ -325,7 +341,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
         })
 
         // 打开浏览器（支持隐私模式）
-        window.api.openExternal(result.verificationUri, usePrivateMode)
+        openExternalUrl(result.verificationUri, usePrivateMode)
 
         // 开始轮询
         startPolling(result.interval || 5)
@@ -351,7 +367,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
     setIamSsoLoginData(null)
 
     try {
-      const result = await window.api.startIamSsoLogin(ssoStartUrl.trim(), region)
+      const result = await startIamSsoLogin(ssoStartUrl.trim(), region)
 
       if (result.success && result.authorizeUrl) {
         // 设置登录数据（用于显示等待状态）
@@ -363,7 +379,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
         })
 
         // 打开浏览器（支持隐私模式）
-        window.api.openExternal(result.authorizeUrl, usePrivateMode)
+        openExternalUrl(result.authorizeUrl, usePrivateMode)
 
         // 开始轮询（等待服务器回调自动完成 token 交换）
         startIamSsoPolling(3)
@@ -385,7 +401,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
 
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const result = await window.api.pollIamSsoAuth(region)
+        const result = await pollIamSsoAuth(region)
 
         if (!result.success) {
           setError(result.error || (isEn ? 'Authorization failed' : '授权失败'))
@@ -433,7 +449,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
 
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const result = await window.api.pollBuilderIdAuth(region)
+        const result = await pollBuilderIdAuth(region)
 
         if (!result.success) {
           setError(result.error || '授权失败')
@@ -480,11 +496,11 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
     }
 
     if (loginType === 'builderid') {
-      await window.api.cancelBuilderIdLogin()
+      await cancelBuilderIdLogin()
     } else if (loginType === 'iamsso') {
-      await window.api.cancelIamSsoLogin()
+      await cancelIamSsoLogin()
     } else {
-      await window.api.cancelSocialLogin()
+      await cancelSocialLogin()
     }
 
     setIsLoggingIn(false)
@@ -499,7 +515,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
     setError(null)
 
     try {
-      const result = await window.api.startSocialLogin(socialProvider, usePrivateMode)
+      const result = await startSocialLogin(socialProvider, usePrivateMode)
 
       if (!result.success) {
         setError(result.error || '启动登录失败')
@@ -524,7 +540,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
   // 从本地配置导入
   const handleImportFromLocal = async () => {
     try {
-      const result = await window.api.loadKiroCredentials()
+      const result = await loadKiroCredentials()
       if (result.success && result.data) {
         setRefreshToken(result.data.refreshToken)
         setClientId(result.data.clientId)
@@ -574,7 +590,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
     // 单个 Token 导入函数
     const importSingleToken = async (token: string, index: number): Promise<void> => {
       try {
-        const result = await window.api.importFromSsoToken(token, region)
+        const result = await importFromSsoToken(token, region)
 
         if (result.success && result.data) {
           const { email, userId } = result.data
@@ -640,7 +656,11 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
         } else {
           importResult.failed++
           importResult.failedIndices.push(index)
-          importResult.errors.push(`#${index + 1}: ${result.error?.message || '导入失败'}`)
+          const errorMsg =
+            result.error && typeof result.error === 'object'
+              ? result.error.message
+              : result.error || '导入失败'
+          importResult.errors.push(`#${index + 1}: ${errorMsg}`)
         }
       } catch (e) {
         importResult.failed++
@@ -794,7 +814,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
           cred.authMethod ||
           (credProvider === 'BuilderId' || credProvider === 'Enterprise' ? 'IdC' : 'social')
 
-        const result = await window.api.verifyAccountCredentials({
+        const result = await verifyAccountCredentials({
           refreshToken: cred.refreshToken,
           clientId: cred.clientId || '',
           clientSecret: cred.clientSecret || '',
@@ -967,7 +987,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
     setError(null)
 
     try {
-      const result = await window.api.verifyAccountCredentials({
+      const result = await verifyAccountCredentials({
         refreshToken,
         clientId,
         clientSecret,
@@ -1159,7 +1179,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
                       variant="outline"
                       className="flex-1"
                       onClick={() =>
-                        window.api.openExternal(builderIdLoginData.verificationUri, usePrivateMode)
+                        openExternalUrl(builderIdLoginData.verificationUri, usePrivateMode)
                       }
                     >
                       <ExternalLink className="h-4 w-4 mr-2" />

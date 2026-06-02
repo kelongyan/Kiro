@@ -6,7 +6,7 @@ import {
   readKiroSettingsFiles,
   writeKiroSettingsFile,
   type KiroSettingsData
-} from '../../../main/services/kiro/settings-files'
+} from '../../../core/kiro-settings/settings-files'
 
 export interface KiroModelSummary {
   id: string

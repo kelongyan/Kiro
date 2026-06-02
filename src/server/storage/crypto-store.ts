@@ -25,12 +25,12 @@ const IV_LENGTH = 16
 const SALT_LENGTH = 32
 
 /**
- * 纯 Node.js 的 AES-256-GCM 加密 JSON 存储，替代 electron-store。
+ * 纯 Node.js 的 AES-256-GCM 加密 JSON 存储。
  *
  * - 使用 PBKDF2 从密码短语派生 256-bit key
  * - AES-256-GCM 加密（带 auth tag 防篡改）
  * - 原子写入：先写 .tmp 再 rename
- * - API 与 electron-store 兼容（get/set/delete/has）
+ * - 提供 get/set/delete/has 存储 API
  */
 export class CryptoStore {
   private filePath: string

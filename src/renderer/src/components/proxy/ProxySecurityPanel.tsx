@@ -23,6 +23,7 @@ import {
   FileText,
   Activity
 } from 'lucide-react'
+import * as proxyAdmin from '../../services/local-admin-proxy'
 
 interface ProxyConfigSecurity {
   host: string
@@ -98,11 +99,11 @@ export function ProxySecurityPanel({
       return
     }
     let mounted = true
-    void window.api.proxyNeedsRestart().then((r) => {
+    void proxyAdmin.proxyNeedsRestart().then((r) => {
       if (mounted) setNeedsRestart(r.needsRestart)
     })
     const timer = setInterval(() => {
-      void window.api.proxyNeedsRestart().then((r) => {
+      void proxyAdmin.proxyNeedsRestart().then((r) => {
         if (mounted) setNeedsRestart(r.needsRestart)
       })
     }, 5000)
@@ -115,7 +116,7 @@ export function ProxySecurityPanel({
   const updateConfig = useCallback(
     <K extends keyof ProxyConfigSecurity>(key: K, value: ProxyConfigSecurity[K]) => {
       setConfig((prev: unknown) => ({ ...(prev as object), [key]: value }))
-      void window.api.proxyUpdateConfig({ [key]: value })
+      void proxyAdmin.proxyUpdateConfig({ [key]: value })
     },
     [setConfig]
   )
@@ -128,7 +129,7 @@ export function ProxySecurityPanel({
       .filter(Boolean)
 
   const fetchCertInfo = useCallback(async () => {
-    const info = await window.api.proxySelfSignedCertInfo()
+    const info = await proxyAdmin.proxySelfSignedCertInfo()
     if (info.success) setCertInfo(info)
   }, [])
 
@@ -147,7 +148,7 @@ export function ProxySecurityPanel({
       return
     setRegenerating(true)
     try {
-      const info = await window.api.proxySelfSignedCertRegenerate()
+      const info = await proxyAdmin.proxySelfSignedCertRegenerate()
       if (info.success) {
         setCertInfo(info)
         alert(isEn ? 'Regenerated. Restart proxy to apply.' : '已重新生成。重启反代后生效。')
@@ -178,7 +179,7 @@ export function ProxySecurityPanel({
   }, [certInfo])
 
   const fetchAudit = useCallback(async () => {
-    const r = await window.api.proxyAuditLog()
+    const r = await proxyAdmin.proxyAuditLog()
     setAuditEntries(r.entries)
   }, [])
 
@@ -195,7 +196,7 @@ export function ProxySecurityPanel({
       )
     )
       return
-    const r = await window.api.proxyRestart()
+    const r = await proxyAdmin.proxyRestart()
     if (r.success) {
       setNeedsRestart(false)
     } else {

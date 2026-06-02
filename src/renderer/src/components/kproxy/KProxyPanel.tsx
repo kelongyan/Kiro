@@ -30,6 +30,8 @@ import {
 } from '../ui'
 import { useTranslation } from '../../hooks/useTranslation'
 import { cn } from '../../lib/utils'
+import * as kproxyAdmin from '../../services/local-admin-kproxy'
+import { onLocalAdminEvent } from '../../services/local-admin-events'
 
 interface KProxyConfig {
   enabled: boolean
@@ -92,7 +94,7 @@ export function KProxyPanel() {
   // 检查 CA 证书是否已安装
   const checkCaInstalled = useCallback(async () => {
     try {
-      const result = await window.api.kproxyCheckCaCertInstalled()
+      const result = await kproxyAdmin.kproxyCheckCaCertInstalled()
       setCaInstalled(result.installed)
     } catch {
       setCaInstalled(null)
@@ -106,14 +108,14 @@ export function KProxyPanel() {
     setError(null)
 
     try {
-      const result = await window.api.kproxyInit()
+      const result = await kproxyAdmin.kproxyInit()
       if (result.success) {
         setIsInitialized(true)
         if (result.caInfo) {
           setCaInfo(result.caInfo)
         }
         // 获取状态
-        const status = await window.api.kproxyGetStatus()
+        const status = await kproxyAdmin.kproxyGetStatus()
         if (status.config) {
           setConfig(status.config as KProxyConfig)
         }
@@ -139,7 +141,7 @@ export function KProxyPanel() {
 
   // 监听事件
   useEffect(() => {
-    const unsubRequest = window.api.onKproxyRequest((info) => {
+    const unsubRequest = onLocalAdminEvent('kproxy-request', ({ payload: info }) => {
       setRecentRequests((prev) =>
         [
           {
@@ -155,11 +157,11 @@ export function KProxyPanel() {
       )
     })
 
-    const unsubStatus = window.api.onKproxyStatusChange((status) => {
+    const unsubStatus = onLocalAdminEvent('kproxy-status-change', ({ payload: status }) => {
       setIsRunning(status.running)
     })
 
-    const unsubError = window.api.onKproxyError((err) => {
+    const unsubError = onLocalAdminEvent('kproxy-error', ({ payload: err }) => {
       setError(err)
     })
 
@@ -175,18 +177,18 @@ export function KProxyPanel() {
     setError(null)
     try {
       if (isRunning) {
-        const result = await window.api.kproxyStop()
+        const result = await kproxyAdmin.kproxyStop()
         if (!result.success) {
           setError(result.error || 'Failed to stop')
         }
       } else {
-        const result = await window.api.kproxyStart(config)
+        const result = await kproxyAdmin.kproxyStart(config)
         if (!result.success) {
           setError(result.error || 'Failed to start')
         }
       }
       // 刷新状态
-      const status = await window.api.kproxyGetStatus()
+      const status = await kproxyAdmin.kproxyGetStatus()
       setIsRunning(status.running)
       if (status.stats) {
         setStats(status.stats as KProxyStats)
@@ -201,7 +203,7 @@ export function KProxyPanel() {
     const newConfig = { ...config, ...updates }
     setConfig(newConfig)
     try {
-      await window.api.kproxyUpdateConfig(updates)
+      await kproxyAdmin.kproxyUpdateConfig(updates)
     } catch (err) {
       console.error('Failed to update config:', err)
     }
@@ -210,10 +212,10 @@ export function KProxyPanel() {
   // 生成设备 ID
   const generateDeviceId = async () => {
     try {
-      const result = await window.api.kproxyGenerateDeviceId()
+      const result = await kproxyAdmin.kproxyGenerateDeviceId()
       if (result.success && result.deviceId) {
         await updateConfig({ deviceId: result.deviceId })
-        await window.api.kproxySetDeviceId(result.deviceId)
+        await kproxyAdmin.kproxySetDeviceId(result.deviceId)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate device ID')
@@ -240,7 +242,7 @@ export function KProxyPanel() {
   // 导出 CA 证书
   const exportCaCert = async () => {
     try {
-      const result = await window.api.kproxyExportCaCert()
+      const result = await kproxyAdmin.kproxyExportCaCert()
       if (!result.success) {
         setError(result.error || 'Export failed')
       }
@@ -424,7 +426,7 @@ export function KProxyPanel() {
               onChange={(e) => {
                 updateConfig({ deviceId: e.target.value })
                 if (e.target.value.length === 64) {
-                  window.api.kproxySetDeviceId(e.target.value)
+                  void kproxyAdmin.kproxySetDeviceId(e.target.value)
                 }
               }}
               placeholder={isEn ? 'Enter or generate device ID' : '输入或生成设备 ID'}
@@ -473,7 +475,7 @@ export function KProxyPanel() {
                   size="sm"
                   onClick={async () => {
                     try {
-                      const result = await window.api.kproxyInstallCaCert()
+                      const result = await kproxyAdmin.kproxyInstallCaCert()
                       if (result.success) {
                         setCaInstalled(true)
                         alert(result.message || (isEn ? 'Certificate installed' : '证书已安装'))
@@ -493,7 +495,7 @@ export function KProxyPanel() {
                   size="sm"
                   onClick={async () => {
                     try {
-                      const result = await window.api.kproxyUninstallCaCert()
+                      const result = await kproxyAdmin.kproxyUninstallCaCert()
                       if (result.success) {
                         setCaInstalled(false)
                         alert(result.message || (isEn ? 'Certificate uninstalled' : '证书已卸载'))

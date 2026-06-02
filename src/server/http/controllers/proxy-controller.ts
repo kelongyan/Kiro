@@ -6,7 +6,7 @@ import type {
   ProxyClientModel,
   ProxyClientTarget,
   ProxyConfig
-} from '../../../main/proxy'
+} from '../../../core/proxy'
 
 export interface ProxyControllerDeps {
   proxyService: ProxyService
@@ -193,6 +193,15 @@ export function createProxyRouter(deps: ProxyControllerDeps): Router {
 
   router.post('/api/proxy/accounts/:id/clear-suspended', (_req, res, ctx) => {
     const result = proxyService.clearAccountSuspended(ctx.params.id)
+    writeJsonResponse(res, 200, { ok: result.success, ...result })
+  })
+
+  router.post('/api/proxy/accounts/:id/proxy-binding', (_req, res, ctx) => {
+    const body = readObjectBody(ctx.body)
+    const result = proxyService.setAccountProxyBinding(
+      ctx.params.id,
+      typeof body.proxyUrl === 'string' ? body.proxyUrl : undefined
+    )
     writeJsonResponse(res, 200, { ok: result.success, ...result })
   })
 

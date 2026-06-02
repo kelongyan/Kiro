@@ -25,6 +25,8 @@ import {
 import { useState, useEffect } from 'react'
 import { ExportDialog } from '../accounts/ExportDialog'
 import { useTranslation } from '@/hooks/useTranslation'
+import * as proxyAdmin from '@/services/local-admin-proxy'
+import { importTextFile } from '@/services/browser-files'
 
 // 主题配置 - 按色系分组
 const themeGroupsZh = [
@@ -230,7 +232,7 @@ export function SettingsPage() {
   useEffect(() => {
     const loadUsageApiType = async () => {
       try {
-        const type = await window.api.getUsageApiType()
+        const type = await proxyAdmin.getUsageApiType()
         setUsageApiType(type)
       } catch (error) {
         console.error('Failed to load usage API type:', error)
@@ -245,7 +247,7 @@ export function SettingsPage() {
   const handleUsageApiTypeChange = async (type: 'rest' | 'cbor') => {
     setUsageApiType(type)
     try {
-      await window.api.setUsageApiType(type)
+      await proxyAdmin.setUsageApiType(type)
     } catch (error) {
       console.error('Failed to save usage API type:', error)
     }
@@ -259,7 +261,7 @@ export function SettingsPage() {
   useEffect(() => {
     const loadKProxySettings = async () => {
       try {
-        const enabled = await window.api.getUseKProxyForApi()
+        const enabled = await proxyAdmin.getUseKProxyForApi()
         setUseKProxyForApi(enabled)
       } catch (error) {
         console.error('Failed to load K-Proxy settings:', error)
@@ -274,7 +276,7 @@ export function SettingsPage() {
   const handleKProxyChange = async (enabled: boolean) => {
     setUseKProxyForApi(enabled)
     try {
-      await window.api.setUseKProxyForApi(enabled)
+      await proxyAdmin.setUseKProxyForApi(enabled)
     } catch (error) {
       console.error('Failed to save K-Proxy settings:', error)
     }
@@ -297,7 +299,7 @@ export function SettingsPage() {
   const handleImport = async () => {
     setIsImporting(true)
     try {
-      const fileData = await window.api.importFromFile()
+      const fileData = await importTextFile('.json')
       if (fileData && fileData.format === 'json') {
         const data = JSON.parse(fileData.content)
         const importResult = importFromExportData(data)
@@ -1074,7 +1076,7 @@ function ConfigSyncCard({ isEn }: { isEn: boolean }): React.ReactNode {
   }
 
   const handleImport = async (): Promise<void> => {
-    const fileData = await window.api.importFromFile()
+    const fileData = await importTextFile('.json')
     if (!fileData || fileData.format !== 'json') {
       alert(isEn ? 'Please select a JSON file' : '请选择 JSON 文件')
       return

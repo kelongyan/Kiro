@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, Button, Toggle, Select } from '../ui'
 import { useTranslation } from '@/hooks/useTranslation'
 import { SteeringEditor, McpServerEditor } from '../kiro'
+import * as kiroSettingsAdmin from '@/services/local-admin-kiro-settings'
 import {
   FileText,
   ChevronDown,
@@ -154,7 +155,7 @@ export function KiroSettingsPage() {
   const loadAvailableModels = useCallback(async () => {
     setLoadingModels(true)
     try {
-      const result = await window.api.getKiroAvailableModels()
+      const result = await kiroSettingsAdmin.getKiroAvailableModels()
       if (result.models && result.models.length > 0) {
         setAvailableModels(result.models)
       }
@@ -169,7 +170,7 @@ export function KiroSettingsPage() {
     setLoading(true)
     setError(null)
     try {
-      const result = await window.api.getKiroSettings()
+      const result = await kiroSettingsAdmin.getKiroSettings()
       if (result.settings) {
         // 过滤掉 undefined 值，避免覆盖默认值
         const filteredSettings = Object.fromEntries(
@@ -200,7 +201,7 @@ export function KiroSettingsPage() {
     setSaving(true)
     setError(null)
     try {
-      await window.api.saveKiroSettings(settings as unknown as Record<string, unknown>)
+      await kiroSettingsAdmin.saveKiroSettings(settings as unknown as Record<string, unknown>)
     } catch (err) {
       setError(isEn ? 'Failed to save settings' : '保存设置失败')
       console.error(err)
@@ -216,7 +217,7 @@ export function KiroSettingsPage() {
   const openKiroSettingsFile = async () => {
     // 打开 Kiro settings.json 文件
     try {
-      await window.api.openKiroSettingsFile()
+      await kiroSettingsAdmin.openKiroSettingsFile()
     } catch (err) {
       console.error(err)
     }
@@ -224,7 +225,7 @@ export function KiroSettingsPage() {
 
   const openMcpConfig = async (type: 'user' | 'workspace') => {
     try {
-      await window.api.openKiroMcpConfig(type)
+      await kiroSettingsAdmin.openKiroMcpConfig(type)
     } catch (err) {
       console.error(err)
     }
@@ -232,7 +233,7 @@ export function KiroSettingsPage() {
 
   const openSteeringFolder = async () => {
     try {
-      await window.api.openKiroSteeringFolder()
+      await kiroSettingsAdmin.openKiroSteeringFolder()
     } catch (err) {
       console.error(err)
     }
@@ -244,7 +245,7 @@ export function KiroSettingsPage() {
 
   const openSteeringFileExternal = async (filename: string) => {
     try {
-      await window.api.openKiroSteeringFile(filename)
+      await kiroSettingsAdmin.openKiroSteeringFile(filename)
     } catch (err) {
       console.error(err)
     }
@@ -252,7 +253,7 @@ export function KiroSettingsPage() {
 
   const createDefaultRules = async () => {
     try {
-      const result = await window.api.createKiroDefaultRules()
+      const result = await kiroSettingsAdmin.createKiroDefaultRules()
       if (result.success) {
         // 重新加载设置以获取新创建的文件
         await loadKiroSettings()
@@ -273,7 +274,7 @@ export function KiroSettingsPage() {
       return
     }
     try {
-      const result = await window.api.deleteKiroSteeringFile(filename)
+      const result = await kiroSettingsAdmin.deleteKiroSteeringFile(filename)
       if (result.success) {
         await loadKiroSettings()
       } else {
@@ -290,7 +291,7 @@ export function KiroSettingsPage() {
       return
     }
     try {
-      const result = await window.api.deleteMcpServer(name)
+      const result = await kiroSettingsAdmin.deleteMcpServer(name)
       if (result.success) {
         await loadKiroSettings()
       } else {

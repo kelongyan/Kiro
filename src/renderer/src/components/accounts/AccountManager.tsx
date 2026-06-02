@@ -12,6 +12,7 @@ import { ExportDialog } from './ExportDialog'
 import { Button } from '../ui'
 import type { Account } from '@/types/account'
 import { ArrowLeft, Loader2, Users } from 'lucide-react'
+import { importTextFile } from '@/services/browser-files'
 
 interface AccountManagerProps {
   onBack?: () => void
@@ -80,7 +81,7 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
 
   // 导入
   const handleImport = async (): Promise<void> => {
-    const fileData = await window.api.importFromFile()
+    const fileData = await importTextFile()
 
     if (!fileData) return
 

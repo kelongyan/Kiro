@@ -62,6 +62,11 @@ export {
   type WebhookControllerDeps
 } from './http/controllers/webhook-controller'
 
+export {
+  createConfigSyncRouter,
+  type ConfigSyncControllerDeps
+} from './http/controllers/config-sync-controller'
+
 export { AccountService, type AccountServiceDeps } from './services/accounts/account-service'
 
 export {
@@ -102,6 +107,11 @@ export { DiagnosticsService } from './services/diagnostics/diagnostics-service'
 export { SubscriptionService } from './services/subscriptions/subscription-service'
 
 export { WebhookService } from './services/webhooks/webhook-service'
+
+export {
+  ConfigSyncService,
+  type ConfigSyncServiceDeps
+} from './services/config-sync/config-sync-service'
 
 export { getDataDir, setDataDir, resetDataDir } from './runtime/paths'
 
