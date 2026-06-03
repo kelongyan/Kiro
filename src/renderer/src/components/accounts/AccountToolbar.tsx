@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Button, Badge } from '../ui'
 import { useAccountsStore } from '@/store/accounts'
+import { summarizeBatchOperationResult } from '@/store/account-management-utils'
 import { useTranslation } from '@/hooks/useTranslation'
 import { AccountFilterPanel } from './AccountFilter'
 import { toRgba } from './_helpers'
@@ -278,15 +279,23 @@ export function AccountToolbar({
   const handleBatchRefresh = async (): Promise<void> => {
     if (selectedCount === 0) return
     setIsRefreshing(true)
-    await batchRefreshTokens(Array.from(selectedIds))
-    setIsRefreshing(false)
+    try {
+      const result = await batchRefreshTokens(Array.from(selectedIds))
+      alert(summarizeBatchOperationResult(isEn ? 'Refresh completed' : '刷新完成', result).message)
+    } finally {
+      setIsRefreshing(false)
+    }
   }
 
   const handleBatchCheck = async (): Promise<void> => {
     if (selectedCount === 0) return
     setIsChecking(true)
-    await batchCheckStatus(Array.from(selectedIds))
-    setIsChecking(false)
+    try {
+      const result = await batchCheckStatus(Array.from(selectedIds))
+      alert(summarizeBatchOperationResult(isEn ? 'Check completed' : '检测完成', result).message)
+    } finally {
+      setIsChecking(false)
+    }
   }
 
   const handleBatchDelete = (): void => {

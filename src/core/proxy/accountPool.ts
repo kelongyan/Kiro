@@ -43,7 +43,7 @@ const DEFAULT_CONFIG: AccountPoolConfig = {
   probabilisticRetryChance: 0.1 // 10% 概率重试
 }
 
-export type AccountSelectionStrategy = 'round-robin' | 'sticky'
+export type AccountSelectionStrategy = 'round-robin' | 'sticky' | 'least-used' | 'fastest-proxy'
 
 export class AccountPool {
   private accounts: Map<string, ProxyAccount> = new Map()
@@ -52,6 +52,8 @@ export class AccountPool {
   private config: AccountPoolConfig
   // 默认 round-robin: 每次成功后指针前进 (满足负载均衡期望)
   // sticky: 一个账号成功就粘住 (保留 prompt cache 命中)
+  // least-used: 优先选择请求数最低的健康账号
+  // fastest-proxy: 优先选择历史响应时间最低的健康账号
   private strategy: AccountSelectionStrategy = 'round-robin'
 
   constructor(config: Partial<AccountPoolConfig> = {}) {
@@ -133,6 +135,7 @@ export class AccountPool {
     // 从当前粘滞索引开始遍历所有账号
     const startIndex = this.currentIndex
 
+    const availableCandidates: ProxyAccount[] = []
     for (let i = 0; i < accountList.length; i++) {
       const idx = (startIndex + i) % accountList.length
       const account = accountList[idx]
@@ -142,8 +145,12 @@ export class AccountPool {
 
       // 检查账号是否可用（含断路器状态）
       if (this.isAccountAvailable(account, now)) {
-        return account
+        availableCandidates.push(account)
       }
+    }
+
+    if (availableCandidates.length > 0) {
+      return this.selectAvailableAccount(availableCandidates)
     }
 
     // 没有可用账号：检查是否全部因配额耗尽
@@ -160,6 +167,29 @@ export class AccountPool {
     // 还有非配额原因不可用的账号，返回冷却时间最短的
     const nonExhausted = candidates.filter((a) => !this.isQuotaExhausted(a, now))
     return this.getAccountWithShortestCooldown(nonExhausted, now)
+  }
+
+  private selectAvailableAccount(candidates: ProxyAccount[]): ProxyAccount {
+    if (this.strategy === 'least-used') {
+      return candidates.slice().sort((a, b) => {
+        const requestDiff = (a.requestCount || 0) - (b.requestCount || 0)
+        if (requestDiff !== 0) return requestDiff
+        return (a.errorCount || 0) - (b.errorCount || 0)
+      })[0]
+    }
+
+    if (this.strategy === 'fastest-proxy') {
+      return candidates.slice().sort((a, b) => {
+        const aStats = this.accountStats.get(a.id)
+        const bStats = this.accountStats.get(b.id)
+        const aLatency = aStats?.avgResponseTime || Number.POSITIVE_INFINITY
+        const bLatency = bStats?.avgResponseTime || Number.POSITIVE_INFINITY
+        if (aLatency !== bLatency) return aLatency - bLatency
+        return (a.requestCount || 0) - (b.requestCount || 0)
+      })[0]
+    }
+
+    return candidates[0]
   }
 
   // 获取特定账号
@@ -327,7 +357,7 @@ export class AccountPool {
   }
 
   // 记录请求成功（重置断路器 + 粘滞到当前账号）
-  recordSuccess(accountId: string, tokens: number = 0): void {
+  recordSuccess(accountId: string, tokens: number = 0, responseTime?: number): void {
     const account = this.accounts.get(accountId)
     if (account) {
       this.accounts.set(accountId, {
@@ -353,11 +383,19 @@ export class AccountPool {
 
     const stats = this.accountStats.get(accountId)
     if (stats) {
+      const totalResponseTime =
+        typeof responseTime === 'number' && responseTime >= 0
+          ? stats.totalResponseTime + responseTime
+          : stats.totalResponseTime
+      const requests = stats.requests + 1
       this.accountStats.set(accountId, {
         ...stats,
-        requests: stats.requests + 1,
+        requests,
         tokens: stats.tokens + tokens,
-        lastUsed: Date.now()
+        lastUsed: Date.now(),
+        totalResponseTime,
+        avgResponseTime:
+          totalResponseTime > 0 ? totalResponseTime / requests : stats.avgResponseTime
       })
     }
   }

@@ -13,6 +13,7 @@ import {
   Shield,
   Sparkles,
   Stethoscope,
+  Timer,
   UserPlus,
   Users
 } from 'lucide-react'
@@ -20,6 +21,7 @@ import {
 export type PageType =
   | 'home'
   | 'accounts'
+  | 'tasks'
   | 'machineId'
   | 'kiroSettings'
   | 'proxy'
@@ -43,6 +45,7 @@ export interface NavigationItem {
 export const navigationItems: NavigationItem[] = [
   { id: 'home', labelKey: 'nav.home', icon: Home },
   { id: 'accounts', labelKey: 'nav.accounts', icon: Users },
+  { id: 'tasks', labelKey: 'nav.tasks', icon: Timer },
   { id: 'machineId', labelKey: 'nav.machineId', icon: Fingerprint },
   { id: 'kiroSettings', labelKey: 'nav.kiroSettings', icon: Sparkles },
   { id: 'proxy', labelKey: 'nav.proxy', icon: Server },

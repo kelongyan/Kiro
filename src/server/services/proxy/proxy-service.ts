@@ -11,6 +11,7 @@ import {
   type ProxyClientModel,
   type ProxyClientTarget,
   type ProxyConfig,
+  type RequestLog,
   type ProxyStats
 } from '../../../core/proxy'
 import { proxyLogStore, type LogEntry } from '../../../core/proxy/logger'
@@ -40,11 +41,55 @@ export interface ProxyStatusResult {
   sessionStats: ReturnType<ProxyServer['getSessionStats']> | null
 }
 
+export interface ProxyDashboardResult {
+  running: boolean
+  origin: string
+  host: string
+  port: number
+  strategy: string
+  requests: {
+    total: number
+    success: number
+    failed: number
+    successRate: number
+  }
+  tokens: {
+    total: number
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+    reasoning: number
+  }
+  credits: {
+    total: number
+  }
+  accounts: {
+    total: number
+    available: number
+    unavailable: number
+    suspended: number
+    exhausted: number
+    cooldown: number
+  }
+  apiKeys: {
+    total: number
+    enabled: number
+    disabled: number
+    limited: number
+    exhausted: number
+    restricted: number
+  }
+  recentRequests: RequestLog[]
+}
+
 interface ApiKeyCreateInput {
   name: string
   key?: string
   format?: 'sk' | 'simple' | 'token'
   creditsLimit?: number
+  modelAllowlist?: string[]
+  accountAllowlist?: string[]
 }
 
 interface ConfigureClientsInput {
@@ -90,6 +135,28 @@ function generateApiKey(format: ApiKeyCreateInput['format']): string {
     default:
       return `sk-${randomHex}`
   }
+}
+
+function normalizeStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const normalized = Array.from(
+    new Set(value.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean))
+  )
+  return normalized.length > 0 ? normalized : undefined
+}
+
+function isSuspendedAccount(account: ProxyAccount): boolean {
+  return typeof account.suspendedAt === 'number' && account.suspendedAt > 0
+}
+
+function isQuotaExhaustedAccount(account: ProxyAccount, now: number): boolean {
+  if (account.quotaResetAt && account.quotaResetAt <= now) return false
+  if (account.quotaExhaustedAt && account.quotaExhaustedAt > 0) return true
+  return !!(
+    account.quotaLimit &&
+    account.quotaLimit > 0 &&
+    (account.quotaUsed ?? 0) >= account.quotaLimit
+  )
 }
 
 export class ProxyService {
@@ -183,6 +250,83 @@ export class ProxyService {
       config: server.getConfig(),
       stats: serializeProxyStats(server.getStats()),
       sessionStats: server.getSessionStats()
+    }
+  }
+
+  getDashboard(): ProxyDashboardResult {
+    const status = this.getStatus()
+    const server = this.currentServer
+    const config = status.config || this.getSavedConfig()
+    const host = config?.host || '127.0.0.1'
+    const port = config?.port || 5580
+    const origin = `${config?.tls?.enabled ? 'https' : 'http'}://${host === '0.0.0.0' ? 'localhost' : host}:${port}`
+    const stats = status.stats
+    const accounts = server?.getAccountPool().getAllAccounts() || []
+    const available = server?.getAccountPool().availableCount || 0
+    const now = Date.now()
+    const suspended = accounts.filter(isSuspendedAccount).length
+    const exhausted = accounts.filter((account) => isQuotaExhaustedAccount(account, now)).length
+    const cooldown = accounts.filter(
+      (account) => !!account.cooldownUntil && account.cooldownUntil > now
+    ).length
+    const apiKeys = config?.apiKeys || []
+    const requestTotal = stats?.totalRequests || 0
+    const success = stats?.successRequests || 0
+    const input = stats?.inputTokens || 0
+    const output = stats?.outputTokens || 0
+
+    return {
+      running: status.running,
+      origin,
+      host,
+      port,
+      strategy: config?.accountSelectionStrategy || 'least-used',
+      requests: {
+        total: requestTotal,
+        success,
+        failed: stats?.failedRequests || 0,
+        successRate: requestTotal > 0 ? success / requestTotal : 0
+      },
+      tokens: {
+        total: input + output,
+        input,
+        output,
+        cacheRead: stats?.cacheReadTokens || 0,
+        cacheWrite: stats?.cacheWriteTokens || 0,
+        reasoning: stats?.reasoningTokens || 0
+      },
+      credits: {
+        total: stats?.totalCredits || 0
+      },
+      accounts: {
+        total: accounts.length,
+        available,
+        unavailable: Math.max(0, accounts.length - available),
+        suspended,
+        exhausted,
+        cooldown
+      },
+      apiKeys: {
+        total: apiKeys.length,
+        enabled: apiKeys.filter((key) => key.enabled).length,
+        disabled: apiKeys.filter((key) => !key.enabled).length,
+        limited: apiKeys.filter((key) => typeof key.creditsLimit === 'number').length,
+        exhausted: apiKeys.filter(
+          (key) =>
+            typeof key.creditsLimit === 'number' &&
+            key.creditsLimit > 0 &&
+            key.usage.totalCredits >= key.creditsLimit
+        ).length,
+        restricted: apiKeys.filter((key) => {
+          const boundAccounts = config?.apiKeyAccountBindings?.[key.id] || []
+          return (
+            (key.modelAllowlist?.length || 0) > 0 ||
+            (key.accountAllowlist?.length || 0) > 0 ||
+            boundAccounts.length > 0
+          )
+        }).length
+      },
+      recentRequests: (stats?.recentRequests || []).slice(-20).reverse()
     }
   }
 
@@ -338,6 +482,8 @@ export class ProxyService {
         enabled: true,
         createdAt: Date.now(),
         creditsLimit: input.creditsLimit,
+        modelAllowlist: normalizeStringList(input.modelAllowlist),
+        accountAllowlist: normalizeStringList(input.accountAllowlist),
         usage: {
           totalRequests: 0,
           totalCredits: 0,
@@ -377,7 +523,20 @@ export class ProxyService {
       void ignoredId
       void ignoredCreatedAt
       void ignoredUsage
-      apiKeys[index] = { ...apiKeys[index], ...allowedUpdates }
+      const sanitizedUpdates: Partial<ApiKey> = { ...allowedUpdates }
+      if ('modelAllowlist' in sanitizedUpdates) {
+        sanitizedUpdates.modelAllowlist = normalizeStringList(sanitizedUpdates.modelAllowlist)
+      }
+      if ('accountAllowlist' in sanitizedUpdates) {
+        sanitizedUpdates.accountAllowlist = normalizeStringList(sanitizedUpdates.accountAllowlist)
+      }
+      if (
+        'creditsLimit' in sanitizedUpdates &&
+        (typeof sanitizedUpdates.creditsLimit !== 'number' || sanitizedUpdates.creditsLimit <= 0)
+      ) {
+        sanitizedUpdates.creditsLimit = undefined
+      }
+      apiKeys[index] = { ...apiKeys[index], ...sanitizedUpdates }
       server.updateConfig({ apiKeys })
       this.saveConfig(server.getConfig())
       return { success: true, apiKey: apiKeys[index] }

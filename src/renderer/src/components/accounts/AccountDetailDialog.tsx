@@ -11,7 +11,10 @@ import {
   FileText,
   Image,
   Hash,
-  Zap
+  Zap,
+  Eye,
+  EyeOff,
+  Shield
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -19,6 +22,7 @@ import { Progress } from '@/components/ui/progress'
 import type { Account } from '@/types/account'
 import { cn } from '@/lib/utils'
 import { useAccountsStore } from '@/store/accounts'
+import { maskSensitiveValue } from '@/store/account-management-utils'
 import { useTranslation } from '@/hooks/useTranslation'
 import { accountGetModels } from '@/services/local-admin-accounts'
 
@@ -107,9 +111,16 @@ export function AccountDetailDialog({
   const [models, setModels] = useState<ModelInfo[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
   const [modelsError, setModelsError] = useState<string | null>(null)
+  const [showSensitive, setShowSensitive] = useState(false)
   const { maskEmail, maskNickname, privacyMode, usagePrecision } = useAccountsStore()
   const { t } = useTranslation()
   const isEn = t('common.unknown') === 'Unknown'
+
+  useEffect(() => {
+    if (open) {
+      setShowSensitive(false)
+    }
+  }, [open, account?.id])
 
   // 获取账户可用模型
   useEffect(() => {
@@ -117,14 +128,14 @@ export function AccountDetailDialog({
       setModelsLoading(true)
       setModelsError(null)
       accountGetModels(
-          account.credentials.accessToken,
-          account.credentials?.region,
-          account.profileArn,
-          account.machineId,
-          account.credentials.provider || account.idp,
-          account.credentials.authMethod,
-          account.id
-        )
+        account.credentials.accessToken,
+        account.credentials?.region,
+        account.profileArn,
+        account.machineId,
+        account.credentials.provider || account.idp,
+        account.credentials.authMethod,
+        account.id
+      )
         .then((result) => {
           if (result.success) {
             setModels(result.models)
@@ -442,6 +453,42 @@ export function AccountDetailDialog({
                     {privacyMode ? '********' : account.userId || '-'}
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {isEn ? 'Status' : '状态'}
+                    </label>
+                    <Badge variant={account.status === 'error' ? 'destructive' : 'outline'}>
+                      {account.status}
+                    </Badge>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {isEn ? 'Last Checked' : '最近检测'}
+                    </label>
+                    <div className="text-xs font-mono">
+                      {account.lastCheckedAt ? formatDateTime(account.lastCheckedAt) : '-'}
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {isEn ? 'Machine ID' : '机器码绑定'}
+                  </label>
+                  <div className="text-xs font-mono break-all bg-primary/[0.06] px-3 py-2 rounded-lg border border-primary/15 select-all text-foreground/80">
+                    {maskSensitiveValue(account.machineId, !privacyMode && showSensitive)}
+                  </div>
+                </div>
+                {account.lastError && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {isEn ? 'Last Error' : '最近错误'}
+                    </label>
+                    <div className="text-xs break-all bg-destructive/10 text-destructive px-3 py-2 rounded-lg border border-destructive/20">
+                      {account.lastError}
+                    </div>
+                  </div>
+                )}
                 {/* 代理绑定（B4） */}
                 <ProxyBindingSection
                   accountId={account.id}
@@ -519,6 +566,49 @@ export function AccountDetailDialog({
               </div>
             </section>
           </div>
+
+          {/* 凭据状态 */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 font-bold text-base text-foreground">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <Shield className="h-4 w-4 text-primary" />
+                </div>
+                {isEn ? 'Credentials' : '凭据状态'}
+              </h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSensitive((value) => !value)}
+                className="h-8 rounded-lg"
+              >
+                {showSensitive ? (
+                  <EyeOff className="h-3.5 w-3.5" />
+                ) : (
+                  <Eye className="h-3.5 w-3.5" />
+                )}
+                {showSensitive ? (isEn ? 'Hide' : '隐藏') : isEn ? 'Show' : '显示'}
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-gradient-to-br from-muted/20 to-muted/40 border rounded-xl p-4">
+              {[
+                ['Access Token', credentials.accessToken],
+                ['Refresh Token', credentials.refreshToken],
+                ['Client ID', credentials.clientId],
+                ['Client Secret', credentials.clientSecret],
+                ['CSRF Token', credentials.csrfToken]
+              ].map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+                    {label}
+                  </div>
+                  <code className="block text-xs bg-background/70 border rounded-lg px-3 py-2 truncate select-all">
+                    {maskSensitiveValue(value, showSensitive)}
+                  </code>
+                </div>
+              ))}
+            </div>
+          </section>
 
           {/* 账户可用模型 */}
           <section className="space-y-3">

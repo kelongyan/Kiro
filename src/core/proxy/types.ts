@@ -476,6 +476,9 @@ export interface ApiKey {
   lastUsedAt?: number
   // 额度限制
   creditsLimit?: number // Credits 上限（undefined 表示无限制）
+  // 权限限制：空或未配置表示不限制
+  modelAllowlist?: string[]
+  accountAllowlist?: string[]
   // 用量统计
   usage: {
     totalRequests: number
@@ -565,7 +568,9 @@ export interface ProxyConfig {
   // 多账号选择策略 (仅 enableMultiAccount=true 时生效)
   // - round-robin: 每次请求成功后切到下一个账号 (默认, 负载均衡)
   // - sticky: 一个账号成功就粘住, 直到失败才切换 (保留 prompt cache, 牺牲均衡)
-  accountSelectionStrategy?: 'round-robin' | 'sticky'
+  // - least-used: 优先使用请求数最低的健康账号
+  // - fastest-proxy: 优先使用历史响应时间最低的健康账号
+  accountSelectionStrategy?: 'round-robin' | 'sticky' | 'least-used' | 'fastest-proxy'
   // 多账号轮询范围 (仅 enableMultiAccount=true 时生效)
   // - 'all': 使用所有 active 账号（默认）
   // - 'groups': 仅使用 multiAccountGroupIds 选中分组的账号；可包含特殊值 '__ungrouped__' 表示未分组账号
@@ -674,10 +679,13 @@ export interface ModelStats {
 }
 
 export interface RequestLog {
+  requestId?: string
   timestamp: number
   path: string
   model: string
+  apiKeyId?: string
   accountId: string
+  status?: number
   inputTokens: number
   outputTokens: number
   cacheReadTokens?: number

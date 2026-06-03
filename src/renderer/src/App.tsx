@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar } from './components/layout'
 import { renderPage } from './app/page-registry'
 import type { PageType } from './app/navigation'
+import { getInitialPageFromUrl, setPageInUrl } from './app/page-url'
 import { useWebhookStore } from './store/webhooks'
 import { useAccountsStore } from './store/accounts'
 import {
@@ -15,7 +16,9 @@ import {
 const BACKGROUND_RESULT_FLUSH_MS = 120
 
 function App(): React.JSX.Element {
-  const [currentPage, setCurrentPage] = useState<PageType>('home')
+  const [currentPage, setCurrentPage] = useState<PageType>(() =>
+    getInitialPageFromUrl(window.location.search, window.location.hash)
+  )
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
 
   const {
@@ -27,6 +30,11 @@ function App(): React.JSX.Element {
     flushSaveImmediately,
     updateAccountStatus
   } = useAccountsStore()
+
+  const handlePageChange = useCallback((page: PageType): void => {
+    setCurrentPage(page)
+    window.history.replaceState(null, '', setPageInUrl(window.location.href, page))
+  }, [])
 
   // 应用启动时加载数据并启动自动刷新
   useEffect(() => {
@@ -45,6 +53,16 @@ function App(): React.JSX.Element {
     connectLocalAdminEvents()
     return () => {
       closeLocalAdminEvents()
+    }
+  }, [])
+
+  useEffect(() => {
+    const handlePopState = (): void => {
+      setCurrentPage(getInitialPageFromUrl(window.location.search, window.location.hash))
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
     }
   }, [])
 
@@ -170,7 +188,7 @@ function App(): React.JSX.Element {
       <div className="flex-1 min-h-0 flex gap-2 p-2">
         <Sidebar
           currentPage={currentPage}
-          onPageChange={setCurrentPage}
+          onPageChange={handlePageChange}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         />

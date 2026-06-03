@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import { publishEvent, subscribeEvents, getEventHistory, type ServerEvent } from '../events'
 import { Router } from './router'
+import { serveStaticFile } from './static-files'
 
 export interface LocalAdminServerOptions {
   host?: string
@@ -9,6 +10,8 @@ export interface LocalAdminServerOptions {
   accessToken?: string
   /** 额外注册的路由器（账号、认证等控制器） */
   routers?: Router[]
+  /** 可选的浏览器 UI 静态资源目录 */
+  staticDir?: string
 }
 
 export interface LocalAdminServerInfo {
@@ -82,19 +85,30 @@ function formatSseEvent(event: ServerEvent): string {
   )
 }
 
+function isApiPath(pathname: string): boolean {
+  return pathname === '/api' || pathname.startsWith('/api/')
+}
+
 export function createLocalAdminServer(options: LocalAdminServerOptions = {}): LocalAdminServer {
   const host = options.host || DEFAULT_HOST
   const port = options.port ?? 0
   const accessToken = options.accessToken || createAccessToken()
   const routers = options.routers || []
+  const staticDir = options.staticDir
   let server: Server | null = null
   let info: LocalAdminServerInfo | null = null
 
-  const ensureAuthorized = (req: IncomingMessage, url: URL, res: ServerResponse): boolean => {
+  const ensureLocalConnection = (req: IncomingMessage, res: ServerResponse): boolean => {
     if (!isLoopbackAddress(req.socket.remoteAddress)) {
       writeJson(res, 403, { ok: false, error: 'Only local connections are allowed' })
       return false
     }
+
+    return true
+  }
+
+  const ensureAuthorized = (req: IncomingMessage, url: URL, res: ServerResponse): boolean => {
+    if (!ensureLocalConnection(req, res)) return false
 
     const token = getBearerToken(req, url)
     if (token !== accessToken) {
@@ -172,6 +186,12 @@ export function createLocalAdminServer(options: LocalAdminServerOptions = {}): L
       const event = publishEvent('test', { message: 'local admin event bus is ready' })
       writeJson(res, 200, { ok: true, event })
       return
+    }
+
+    if (staticDir && !isApiPath(url.pathname)) {
+      if (!ensureLocalConnection(req, res)) return
+      const result = await serveStaticFile(req, res, url, staticDir)
+      if (result.handled) return
     }
 
     // 控制器路由分发（需要授权）

@@ -1,4 +1,6 @@
 import { spawn } from 'child_process'
+import { existsSync } from 'fs'
+import { resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { AccountService } from './services/accounts/account-service'
 import { AuthService } from './services/auth/auth-service'
@@ -19,6 +21,7 @@ import { createDiagnosticsRouter } from './http/controllers/diagnostics-controll
 import { createSubscriptionRouter } from './http/controllers/subscription-controller'
 import { createWebhookRouter } from './http/controllers/webhook-controller'
 import { createConfigSyncRouter } from './http/controllers/config-sync-controller'
+import { createSchedulerRouter } from './http/controllers/scheduler-controller'
 import {
   createLocalAdminServer,
   type LocalAdminServer,
@@ -36,6 +39,7 @@ import { DiagnosticsService } from './services/diagnostics/diagnostics-service'
 import { SubscriptionService } from './services/subscriptions/subscription-service'
 import { WebhookService } from './services/webhooks/webhook-service'
 import { ConfigSyncService } from './services/config-sync/config-sync-service'
+import { SchedulerService } from './services/scheduler/scheduler-service'
 import { ConfigStore } from './storage/config-store'
 import { ProxyServer, type ProxyAccount, type ProxyConfig } from '../core/proxy'
 import { safeCreateProxyAgent } from '../core/proxy/systemProxy'
@@ -46,6 +50,8 @@ interface StandaloneOptions {
   accessToken?: string
   dataDir?: string
   encryptionKey?: string
+  staticDir?: string
+  openBrowser?: boolean
 }
 
 interface StandaloneRuntime {
@@ -61,13 +67,16 @@ interface StandaloneRuntime {
   subscriptionService: SubscriptionService
   webhookService: WebhookService
   configSyncService: ConfigSyncService
+  schedulerService: SchedulerService
   server: LocalAdminServer
   info: LocalAdminServerInfo
+  staticDir?: string
   close(): Promise<void>
 }
 
 const DEFAULT_PORT = 9527
 const DEFAULT_ENCRYPTION_KEY = 'kiro-account-manager-secret-key'
+const DEFAULT_STATIC_DIR = resolve('out/renderer')
 
 function parsePort(value: string | undefined): number {
   if (!value) return DEFAULT_PORT
@@ -84,7 +93,9 @@ function getEnvOptions(): StandaloneOptions {
     port: parsePort(process.env.KIRO_ADMIN_PORT),
     accessToken: process.env.KIRO_ADMIN_TOKEN,
     dataDir: process.env.KIRO_ADMIN_DATA_DIR,
-    encryptionKey: process.env.KIRO_ADMIN_ENCRYPTION_KEY
+    encryptionKey: process.env.KIRO_ADMIN_ENCRYPTION_KEY,
+    staticDir: process.env.KIRO_ADMIN_STATIC_DIR,
+    openBrowser: process.env.KIRO_ADMIN_OPEN_BROWSER !== '0'
   }
 }
 
@@ -134,6 +145,8 @@ export async function startStandaloneServer(
   }
 
   const dataDir = options.dataDir || getDataDir()
+  const staticDir =
+    options.staticDir ?? (existsSync(DEFAULT_STATIC_DIR) ? DEFAULT_STATIC_DIR : undefined)
   const fetchOpts = {}
   const configStore = new ConfigStore({
     dataDir,
@@ -198,6 +211,14 @@ export async function startStandaloneServer(
     configStore,
     webhookService
   })
+  const schedulerService = new SchedulerService({
+    accountService,
+    store: configStore,
+    emitEvent: (type, payload): void => {
+      publishEvent(type, payload)
+    }
+  })
+  schedulerService.initialize()
 
   const proxyService = new ProxyService({
     dataDir,
@@ -287,6 +308,7 @@ export async function startStandaloneServer(
     host: options.host,
     port: options.port ?? DEFAULT_PORT,
     accessToken: options.accessToken,
+    staticDir,
     routers: [
       createAccountRouter({ accountService }),
       createAuthRouter({ authService }),
@@ -299,7 +321,8 @@ export async function startStandaloneServer(
       createDiagnosticsRouter({ diagnosticsService }),
       createSubscriptionRouter({ subscriptionService }),
       createWebhookRouter({ webhookService }),
-      createConfigSyncRouter({ configSyncService })
+      createConfigSyncRouter({ configSyncService }),
+      createSchedulerRouter({ schedulerService })
     ]
   })
 
@@ -318,9 +341,12 @@ export async function startStandaloneServer(
     subscriptionService,
     webhookService,
     configSyncService,
+    schedulerService,
     server,
     info,
+    staticDir,
     async close(): Promise<void> {
+      schedulerService.shutdown()
       await proxyService.shutdown()
       await kproxyService.shutdown()
       await registrationService.shutdown()
@@ -341,6 +367,25 @@ async function runSmoke(runtime: StandaloneRuntime): Promise<void> {
     throw new Error('Health check failed: ok is not true')
   }
 
+  if (runtime.staticDir) {
+    const uiResponse = await fetch(`${runtime.info.baseUrl}/`)
+    if (!uiResponse.ok) {
+      throw new Error(`Static UI check failed: HTTP ${uiResponse.status}`)
+    }
+    const contentType = uiResponse.headers.get('content-type') || ''
+    if (!contentType.includes('text/html')) {
+      throw new Error(`Static UI check failed: expected text/html, got ${contentType}`)
+    }
+    const html = await uiResponse.text()
+    const assetMatch = html.match(/["'](\/assets\/[^"']+\.(?:js|css))["']/)
+    if (assetMatch) {
+      const assetResponse = await fetch(`${runtime.info.baseUrl}${assetMatch[1]}`)
+      if (!assetResponse.ok) {
+        throw new Error(`Static asset check failed: HTTP ${assetResponse.status}`)
+      }
+    }
+  }
+
   const proxyStatusResponse = await fetch(`${runtime.info.baseUrl}/api/proxy/status`, {
     headers: {
       Authorization: `Bearer ${runtime.info.accessToken}`
@@ -352,6 +397,95 @@ async function runSmoke(runtime: StandaloneRuntime): Promise<void> {
   const proxyStatusBody = (await proxyStatusResponse.json()) as { ok?: boolean }
   if (proxyStatusBody.ok !== true) {
     throw new Error('Proxy status check failed: ok is not true')
+  }
+
+  const proxyDashboardResponse = await fetch(`${runtime.info.baseUrl}/api/proxy/dashboard`, {
+    headers: {
+      Authorization: `Bearer ${runtime.info.accessToken}`
+    }
+  })
+  if (!proxyDashboardResponse.ok) {
+    throw new Error(`Proxy dashboard check failed: HTTP ${proxyDashboardResponse.status}`)
+  }
+  const proxyDashboardBody = (await proxyDashboardResponse.json()) as {
+    ok?: boolean
+    dashboard?: { accounts?: { total?: number }; apiKeys?: { total?: number } }
+  }
+  if (
+    proxyDashboardBody.ok !== true ||
+    typeof proxyDashboardBody.dashboard?.accounts?.total !== 'number' ||
+    typeof proxyDashboardBody.dashboard?.apiKeys?.total !== 'number'
+  ) {
+    throw new Error('Proxy dashboard check failed: invalid body')
+  }
+
+  const schedulerHealthResponse = await fetch(`${runtime.info.baseUrl}/api/scheduler/health`, {
+    headers: {
+      Authorization: `Bearer ${runtime.info.accessToken}`
+    }
+  })
+  if (!schedulerHealthResponse.ok) {
+    throw new Error(`Scheduler health check failed: HTTP ${schedulerHealthResponse.status}`)
+  }
+  const schedulerHealthBody = (await schedulerHealthResponse.json()) as {
+    ok?: boolean
+    tasks?: Array<{ id?: string }>
+  }
+  if (schedulerHealthBody.ok !== true) {
+    throw new Error('Scheduler health check failed: ok is not true')
+  }
+  if (
+    !schedulerHealthBody.tasks?.some((task) => task.id === 'account-auto-refresh') ||
+    !schedulerHealthBody.tasks?.some((task) => task.id === 'account-status-check')
+  ) {
+    throw new Error('Scheduler health check failed: default tasks missing')
+  }
+
+  const schedulerRunResponse = await fetch(
+    `${runtime.info.baseUrl}/api/scheduler/tasks/account-status-check/run`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${runtime.info.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  )
+  if (!schedulerRunResponse.ok) {
+    throw new Error(`Scheduler manual run check failed: HTTP ${schedulerRunResponse.status}`)
+  }
+  const schedulerRunBody = (await schedulerRunResponse.json()) as {
+    ok?: boolean
+    run?: { status?: string; total?: number }
+  }
+  if (schedulerRunBody.ok !== true || schedulerRunBody.run?.total !== 0) {
+    throw new Error('Scheduler manual run check failed: invalid run body')
+  }
+
+  const schedulerPauseResponse = await fetch(
+    `${runtime.info.baseUrl}/api/scheduler/tasks/account-status-check/pause`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${runtime.info.accessToken}`
+      }
+    }
+  )
+  if (!schedulerPauseResponse.ok) {
+    throw new Error(`Scheduler pause check failed: HTTP ${schedulerPauseResponse.status}`)
+  }
+
+  const schedulerResumeResponse = await fetch(
+    `${runtime.info.baseUrl}/api/scheduler/tasks/account-status-check/resume`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${runtime.info.accessToken}`
+      }
+    }
+  )
+  if (!schedulerResumeResponse.ok) {
+    throw new Error(`Scheduler resume check failed: HTTP ${schedulerResumeResponse.status}`)
   }
 
   const kiroLocalResponse = await fetch(`${runtime.info.baseUrl}/api/kiro-local/active-account`, {
@@ -495,7 +629,8 @@ async function runSmoke(runtime: StandaloneRuntime): Promise<void> {
 
 export async function runStandaloneMain(): Promise<void> {
   const smoke = process.argv.includes('--smoke')
-  const runtime = await startStandaloneServer(getEnvOptions())
+  const options = getEnvOptions()
+  const runtime = await startStandaloneServer(options)
   let closing = false
 
   const close = async (exitCode: number = 0): Promise<void> => {
@@ -509,6 +644,12 @@ export async function runStandaloneMain(): Promise<void> {
   console.log(`[Standalone] Admin URL: ${runtime.info.adminUrl}`)
   console.log(`[Standalone] Access token: ${runtime.info.accessToken}`)
   console.log(`[Standalone] Data dir: ${getDataDir()}`)
+
+  if (!smoke && options.openBrowser !== false) {
+    void openExternalUrl(runtime.info.adminUrl).catch((error) => {
+      console.warn('[Standalone] Failed to open browser:', error)
+    })
+  }
 
   process.once('SIGINT', () => {
     void close(0)

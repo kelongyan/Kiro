@@ -13,6 +13,7 @@ import { ProxyPoolPage } from '@renderer/features/proxy-pool'
 import { RegisterPage } from '@renderer/features/register'
 import { SettingsPage } from '@renderer/features/settings'
 import { SubscriptionPage } from '@renderer/features/subscription'
+import { TasksPage } from '@renderer/features/tasks'
 import { WebhooksPage } from '@renderer/features/webhooks'
 
 void McpServerActions
@@ -23,6 +24,8 @@ export function renderPage(currentPage: PageType): React.JSX.Element {
       return <HomePage />
     case 'accounts':
       return <AccountManager />
+    case 'tasks':
+      return <TasksPage />
     case 'machineId':
       return <MachineIdPage />
     case 'kiroSettings':

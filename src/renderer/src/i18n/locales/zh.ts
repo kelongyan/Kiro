@@ -44,6 +44,7 @@ const zh = {
   nav: {
     home: '主页',
     accounts: '账户管理',
+    tasks: '任务中心',
     machineId: '机器码',
     kiroSettings: 'Kiro 设置',
     proxy: 'API 反代',

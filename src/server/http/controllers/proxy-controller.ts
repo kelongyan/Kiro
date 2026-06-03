@@ -30,6 +30,10 @@ export function createProxyRouter(deps: ProxyControllerDeps): Router {
     writeJsonResponse(res, 200, { ok: true, ...proxyService.getStatus() })
   })
 
+  router.get('/api/proxy/dashboard', (_req, res) => {
+    writeJsonResponse(res, 200, { ok: true, dashboard: proxyService.getDashboard() })
+  })
+
   router.post('/api/proxy/start', async (_req, res, ctx) => {
     const body = readObjectBody(ctx.body)
     const result = await proxyService.start(body.config as Partial<ProxyConfig> | undefined)
@@ -133,6 +137,8 @@ export function createProxyRouter(deps: ProxyControllerDeps): Router {
       key?: string
       format?: ApiKey['format']
       creditsLimit?: number
+      modelAllowlist?: string[]
+      accountAllowlist?: string[]
     }
     if (!body.name) {
       writeJsonResponse(res, 400, { ok: false, success: false, error: '缺少 name' })
@@ -142,7 +148,9 @@ export function createProxyRouter(deps: ProxyControllerDeps): Router {
       name: body.name,
       key: body.key,
       format: body.format,
-      creditsLimit: body.creditsLimit
+      creditsLimit: body.creditsLimit,
+      modelAllowlist: body.modelAllowlist,
+      accountAllowlist: body.accountAllowlist
     })
     writeJsonResponse(res, 200, { ok: result.success, ...result })
   })

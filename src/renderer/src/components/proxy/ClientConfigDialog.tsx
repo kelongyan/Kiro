@@ -4,6 +4,7 @@ import {
   Bot,
   Check,
   Code2,
+  Copy,
   Cpu,
   FileCog,
   Loader2,
@@ -19,6 +20,11 @@ import { useAccountsStore } from '../../store/accounts'
 import { cn } from '@/lib/utils'
 import * as proxyAdmin from '@/services/local-admin-proxy'
 import { accountGetModels } from '@/services/local-admin-accounts'
+import {
+  buildProxyClientConfigSnippets,
+  getFirstUsableApiKey,
+  getProxyOriginFromConfig
+} from './client-config-snippets'
 
 type ClientTarget = 'claudeCode' | 'opencode' | 'codex' | 'gemini' | 'hermes' | 'openclaw'
 
@@ -79,6 +85,9 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<ConfigureResult[]>([])
   const [proxyBase, setProxyBase] = useState('')
+  const [proxyOrigin, setProxyOrigin] = useState('http://127.0.0.1:5580')
+  const [proxyApiKey, setProxyApiKey] = useState('')
+  const [copiedSnippetId, setCopiedSnippetId] = useState<string | null>(null)
 
   const clientOptions: ClientOption[] = useMemo(
     () => [
@@ -135,6 +144,27 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
   )
 
   const selectedModel = models.find((model) => model.id === selectedModelId)
+
+  const configSnippets = useMemo(
+    () =>
+      buildProxyClientConfigSnippets({
+        proxyOrigin,
+        apiKey: proxyApiKey || 'YOUR_API_KEY',
+        modelId: selectedModelId || models[0]?.id || 'anthropic.claude-sonnet-4'
+      }),
+    [models, proxyApiKey, proxyOrigin, selectedModelId]
+  )
+
+  const loadProxyRuntime = useCallback(async () => {
+    try {
+      const status = await proxyAdmin.proxyGetStatus()
+      setProxyOrigin(getProxyOriginFromConfig(status.config))
+      setProxyApiKey(getFirstUsableApiKey(status.config))
+    } catch {
+      setProxyOrigin('http://127.0.0.1:5580')
+      setProxyApiKey('')
+    }
+  }, [])
 
   const loadModels = useCallback(async () => {
     setLoadingModels(true)
@@ -201,8 +231,9 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
   useEffect(() => {
     if (open) {
       loadModels()
+      loadProxyRuntime()
     }
-  }, [open, loadModels])
+  }, [open, loadModels, loadProxyRuntime])
 
   if (!open) return null
 
@@ -240,6 +271,7 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
         }))
       })
       setProxyBase(result.openaiBaseUrl || result.proxyOrigin)
+      if (result.proxyOrigin) setProxyOrigin(result.proxyOrigin)
       setResults(result.results)
       if (!result.success) {
         setError(result.error || (isEn ? 'Some clients failed to configure' : '部分客户端配置失败'))
@@ -251,6 +283,12 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
     } finally {
       setApplying(false)
     }
+  }
+
+  const copySnippet = (id: string, command: string) => {
+    navigator.clipboard.writeText(command)
+    setCopiedSnippetId(id)
+    window.setTimeout(() => setCopiedSnippetId(null), 1500)
   }
 
   return (
@@ -391,6 +429,45 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
                 {isEn
                   ? 'Existing client files are merged and backed up before writing.'
                   : '写入时会合并原配置并先创建备份。'}
+              </div>
+            </div>
+
+            <div className="rounded-xl border bg-background p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-primary" />
+                  <span className="font-medium">
+                    {isEn ? 'Configuration Snippets' : '客户端配置示例'}
+                  </span>
+                </div>
+                <Badge variant="secondary" className="border-0 font-mono">
+                  {proxyOrigin}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {configSnippets.map((snippet) => (
+                  <div key={snippet.id} className="rounded-lg border bg-muted/20 overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 border-b">
+                      <span className="text-sm font-semibold">{snippet.title}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => copySnippet(snippet.id, snippet.command)}
+                        title={isEn ? 'Copy' : '复制'}
+                      >
+                        {copiedSnippetId === snippet.id ? (
+                          <Check className="h-3.5 w-3.5 text-success" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
+                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all p-3 text-[11px] leading-5 font-mono text-muted-foreground">
+                      {snippet.command}
+                    </pre>
+                  </div>
+                ))}
               </div>
             </div>
 

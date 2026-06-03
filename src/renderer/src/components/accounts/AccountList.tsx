@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useAccountsStore } from '@/store/accounts'
+import { ACCOUNT_LIST_ROW_HEIGHT } from '@/store/account-management-utils'
 import { useTranslation } from '@/hooks/useTranslation'
 import { AccountListRow } from './AccountListRow'
 import { AccountDetailDialog } from './AccountDetailDialog'
@@ -13,7 +14,7 @@ interface AccountListProps {
 }
 
 // 列表行高度（紧凑型，对齐卡片视觉细节）
-const ROW_HEIGHT = 72
+const ROW_HEIGHT = ACCOUNT_LIST_ROW_HEIGHT
 // 行间距（为 active-glow-border 和 box-shadow 留呼吸空间）
 const ROW_GAP = 10
 

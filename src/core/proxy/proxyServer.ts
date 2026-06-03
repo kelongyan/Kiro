@@ -46,10 +46,19 @@ import { ToolNameRegistry } from './toolNameRegistry'
 import { promptCacheTracker, type CacheProfile, type CacheUsage } from './promptCacheTracker'
 
 export interface ProxyServerEvents {
-  onRequest?: (info: { path: string; method: string; accountId?: string }) => void
+  onRequest?: (info: {
+    requestId?: string
+    path: string
+    method: string
+    apiKeyId?: string
+    accountId?: string
+  }) => void
   onResponse?: (info: {
+    requestId?: string
     path: string
     model?: string
+    apiKeyId?: string
+    accountId?: string
     status: number
     tokens?: number
     inputTokens?: number
@@ -381,10 +390,11 @@ export class ProxyServer {
       tokenRefreshBeforeExpiry: 300, // 5分钟提前刷新
       autoStart: false, // 是否自动启动
       clientDrivenToolExecution: true,
+      accountSelectionStrategy: 'least-used',
       ...config
     }
     this.accountPool = new AccountPool()
-    this.accountPool.setStrategy(this.config.accountSelectionStrategy || 'round-robin')
+    this.accountPool.setStrategy(this.config.accountSelectionStrategy || 'least-used')
     this.stats = {
       totalRequests: 0,
       successRequests: 0,
@@ -732,7 +742,7 @@ export class ProxyServer {
     this.config = { ...this.config, ...config }
     // 同步账号选择策略到 accountPool
     if (config.accountSelectionStrategy !== undefined) {
-      this.accountPool.setStrategy(this.config.accountSelectionStrategy || 'round-robin')
+      this.accountPool.setStrategy(this.config.accountSelectionStrategy || 'least-used')
     }
   }
 
@@ -1334,9 +1344,27 @@ export class ProxyServer {
    */
   private getAllowedAccountIds(apiKeyId?: string): Set<string> | undefined {
     if (!apiKeyId) return undefined
-    const bindings = this.config.apiKeyAccountBindings?.[apiKeyId]
-    if (!bindings || bindings.length === 0) return undefined
-    return new Set(bindings)
+    const apiKey = this.config.apiKeys?.find((key) => key.id === apiKeyId)
+    const allowlist =
+      apiKey?.accountAllowlist && apiKey.accountAllowlist.length > 0
+        ? apiKey.accountAllowlist
+        : this.config.apiKeyAccountBindings?.[apiKeyId]
+    if (!allowlist || allowlist.length === 0) return undefined
+    return new Set(allowlist)
+  }
+
+  private isApiKeyModelAllowed(apiKeyId: string | undefined, model: string): boolean {
+    if (!apiKeyId) return true
+    const apiKey = this.config.apiKeys?.find((key) => key.id === apiKeyId)
+    const allowlist = apiKey?.modelAllowlist?.filter(Boolean)
+    if (!allowlist || allowlist.length === 0) return true
+    return allowlist.some((pattern) => {
+      const escaped = pattern
+        .split('*')
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('.*')
+      return new RegExp(`^${escaped}$`, 'i').test(model)
+    })
   }
 
   // 获取可用账号（包含 Token 刷新检查）
@@ -2522,6 +2550,7 @@ export class ProxyServer {
     const geminiReq = JSON.parse(body)
     const matchedApiKey = (req as unknown as { matchedApiKey?: import('./types').ApiKey })
       .matchedApiKey
+    const requestId = uuidv4()
 
     // 解析路径: /v1beta/models/{model}:{method}
     const match = path.match(/\/v1beta\/models\/([^:]+):(\w+)/)
@@ -2557,17 +2586,52 @@ export class ProxyServer {
       top_p: geminiReq.generationConfig?.topP,
       max_tokens: geminiReq.generationConfig?.maxOutputTokens
     }
+    if (!this.isApiKeyModelAllowed(matchedApiKey?.id, openaiRequest.model)) {
+      this.sendError(res, 403, `Model ${openaiRequest.model} is not allowed for this API key`)
+      return
+    }
 
     // 复用 OpenAI 流程
     const startTime = Date.now()
     this.recordNewRequest()
+    this.events.onRequest?.({
+      requestId,
+      path: '/v1beta',
+      method: 'POST',
+      apiKeyId: matchedApiKey?.id
+    })
     this.throwIfAborted(signal)
-    const account = await this.getAvailableAccount(signal)
+    const account = await this.getAvailableAccount(signal, undefined, matchedApiKey?.id)
     this.throwIfAborted(signal)
     if (!account) {
       this.sendError(res, 503, 'No available accounts')
+      this.recordRequestFailed()
+      this.events.onResponse?.({
+        requestId,
+        path: '/v1beta',
+        model: openaiRequest.model,
+        apiKeyId: matchedApiKey?.id,
+        status: 503,
+        error: 'No available accounts'
+      })
+      this.recordRequest({
+        requestId,
+        path: '/v1beta',
+        model: openaiRequest.model,
+        apiKeyId: matchedApiKey?.id,
+        status: 503,
+        success: false,
+        error: 'No available accounts'
+      })
       return
     }
+    this.events.onRequest?.({
+      requestId,
+      path: '/v1beta',
+      method: 'POST',
+      apiKeyId: matchedApiKey?.id,
+      accountId: account.id
+    })
 
     try {
       const toolNameRegistry = new ToolNameRegistry()
@@ -2617,7 +2681,49 @@ export class ProxyServer {
               this.stats.inputTokens += usage.inputTokens
               this.stats.outputTokens += usage.outputTokens
               this.stats.totalCredits += usage.credits || 0
-              this.accountPool.recordSuccess(account.id, usage.inputTokens + usage.outputTokens)
+              this.stats.cacheReadTokens += usage.cacheReadTokens || 0
+              this.stats.cacheWriteTokens += usage.cacheWriteTokens || 0
+              this.stats.reasoningTokens += usage.reasoningTokens || 0
+              this.events.onCreditsUpdate?.(this.stats.totalCredits)
+              this.events.onTokensUpdate?.(this.stats.inputTokens, this.stats.outputTokens)
+              const respTime = Date.now() - startTime
+              this.accountPool.recordSuccess(
+                account.id,
+                usage.inputTokens + usage.outputTokens,
+                respTime
+              )
+              this.events.onResponse?.({
+                requestId,
+                path: '/v1beta',
+                model: openaiRequest.model,
+                apiKeyId: matchedApiKey?.id,
+                accountId: account.id,
+                status: 200,
+                tokens: usage.inputTokens + usage.outputTokens,
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                cacheReadTokens: usage.cacheReadTokens,
+                cacheWriteTokens: usage.cacheWriteTokens,
+                reasoningTokens: usage.reasoningTokens,
+                credits: usage.credits,
+                responseTime: respTime
+              })
+              this.recordRequest({
+                requestId,
+                path: '/v1beta',
+                model: openaiRequest.model,
+                apiKeyId: matchedApiKey?.id,
+                accountId: account.id,
+                status: 200,
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                cacheReadTokens: usage.cacheReadTokens,
+                cacheWriteTokens: usage.cacheWriteTokens,
+                reasoningTokens: usage.reasoningTokens,
+                credits: usage.credits,
+                responseTime: respTime,
+                success: true
+              })
               resolve()
             },
             (error) => {
@@ -2628,6 +2734,26 @@ export class ProxyServer {
               res.write(`data: ${JSON.stringify({ error: { message: error.message } })}\n\n`)
               res.end()
               this.recordRequestFailed()
+              this.events.onResponse?.({
+                requestId,
+                path: '/v1beta',
+                model: openaiRequest.model,
+                apiKeyId: matchedApiKey?.id,
+                accountId: account.id,
+                status: 500,
+                error: error.message
+              })
+              this.recordRequest({
+                requestId,
+                path: '/v1beta',
+                model: openaiRequest.model,
+                apiKeyId: matchedApiKey?.id,
+                accountId: account.id,
+                status: 500,
+                responseTime: Date.now() - startTime,
+                success: false,
+                error: error.message
+              })
               resolve()
             },
             signal,
@@ -2647,6 +2773,20 @@ export class ProxyServer {
         this.throwIfResponseClosed(res, signal)
         this.recordRequestSuccess()
         this.stats.totalTokens += result.usage.inputTokens + result.usage.outputTokens
+        this.stats.inputTokens += result.usage.inputTokens
+        this.stats.outputTokens += result.usage.outputTokens
+        this.stats.totalCredits += result.usage.credits || 0
+        this.stats.cacheReadTokens += result.usage.cacheReadTokens || 0
+        this.stats.cacheWriteTokens += result.usage.cacheWriteTokens || 0
+        this.stats.reasoningTokens += result.usage.reasoningTokens || 0
+        this.events.onCreditsUpdate?.(this.stats.totalCredits)
+        this.events.onTokensUpdate?.(this.stats.inputTokens, this.stats.outputTokens)
+        const respTime = Date.now() - startTime
+        this.accountPool.recordSuccess(
+          account.id,
+          result.usage.inputTokens + result.usage.outputTokens,
+          respTime
+        )
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(
           JSON.stringify({
@@ -2663,9 +2803,51 @@ export class ProxyServer {
             }
           })
         )
+        this.events.onResponse?.({
+          requestId,
+          path: '/v1beta',
+          model: openaiRequest.model,
+          apiKeyId: matchedApiKey?.id,
+          accountId: account.id,
+          status: 200,
+          tokens: result.usage.inputTokens + result.usage.outputTokens,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          cacheReadTokens: result.usage.cacheReadTokens,
+          cacheWriteTokens: result.usage.cacheWriteTokens,
+          reasoningTokens: result.usage.reasoningTokens,
+          credits: result.usage.credits,
+          responseTime: respTime
+        })
+        this.recordRequest({
+          requestId,
+          path: '/v1beta',
+          model: openaiRequest.model,
+          apiKeyId: matchedApiKey?.id,
+          accountId: account.id,
+          status: 200,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          cacheReadTokens: result.usage.cacheReadTokens,
+          cacheWriteTokens: result.usage.cacheWriteTokens,
+          reasoningTokens: result.usage.reasoningTokens,
+          credits: result.usage.credits,
+          responseTime: respTime,
+          success: true
+        })
       }
     } catch (error) {
-      this.handleApiError(res, account, error as Error, '/v1beta', modelId, startTime, signal)
+      this.handleApiError(
+        res,
+        account,
+        error as Error,
+        '/v1beta',
+        modelId,
+        startTime,
+        signal,
+        requestId,
+        matchedApiKey?.id
+      )
     }
   }
 
@@ -2888,6 +3070,7 @@ export class ProxyServer {
     const request: OpenAIChatRequest = JSON.parse(body)
     const matchedApiKey = (req as unknown as { matchedApiKey?: import('./types').ApiKey })
       .matchedApiKey
+    const requestId = uuidv4()
 
     // 提取 session hint（用于稳定 conversationId），拼入 API Key hash 隔离不同用户
     const rawHintChat = ProxyServer.extractSessionHint(req, request)
@@ -2899,11 +3082,20 @@ export class ProxyServer {
 
     // 应用模型映射
     request.model = this.applyModelMapping(request.model, matchedApiKey?.id)
+    if (!this.isApiKeyModelAllowed(matchedApiKey?.id, request.model)) {
+      this.sendError(res, 403, `Model ${request.model} is not allowed for this API key`)
+      return
+    }
 
     const startTime = Date.now()
 
     this.recordNewRequest()
-    this.events.onRequest?.({ path: '/v1/chat/completions', method: 'POST' })
+    this.events.onRequest?.({
+      requestId,
+      path: '/v1/chat/completions',
+      method: 'POST',
+      apiKeyId: matchedApiKey?.id
+    })
 
     let processedRequest: OpenAIChatRequest
     try {
@@ -2917,14 +3109,19 @@ export class ProxyServer {
       const message = error instanceof Error ? error.message : 'Invalid request'
       this.sendError(res, 400, message)
       this.events.onResponse?.({
+        requestId,
         path: '/v1/chat/completions',
         model: request.model,
+        apiKeyId: matchedApiKey?.id,
         status: 400,
         error: message
       })
       this.recordRequest({
+        requestId,
         path: '/v1/chat/completions',
         model: request.model,
+        apiKeyId: matchedApiKey?.id,
+        status: 400,
         responseTime: Date.now() - startTime,
         success: false,
         error: message
@@ -2945,21 +3142,32 @@ export class ProxyServer {
           : 'No available accounts'
       this.sendError(res, 503, errorMsg)
       this.events.onResponse?.({
+        requestId,
         path: '/v1/chat/completions',
         model: request.model,
+        apiKeyId: matchedApiKey?.id,
         status: 503,
         error: errorMsg
       })
       this.recordRequest({
+        requestId,
         path: '/v1/chat/completions',
         model: request.model,
+        apiKeyId: matchedApiKey?.id,
+        status: 503,
         success: false,
         error: errorMsg
       })
       return
     }
 
-    this.events.onRequest?.({ path: '/v1/chat/completions', method: 'POST', accountId: account.id })
+    this.events.onRequest?.({
+      requestId,
+      path: '/v1/chat/completions',
+      method: 'POST',
+      apiKeyId: matchedApiKey?.id,
+      accountId: account.id
+    })
 
     try {
       const toolNameRegistry = new ToolNameRegistry()
@@ -2999,7 +3207,8 @@ export class ProxyServer {
           false,
           matchedApiKey,
           toolNameRegistry,
-          signal
+          signal,
+          requestId
         )
       } else {
         // 非流式响应（带重试机制）
@@ -3026,32 +3235,49 @@ export class ProxyServer {
         this.stats.totalTokens += result.usage.inputTokens + result.usage.outputTokens
         this.stats.inputTokens += result.usage.inputTokens
         this.stats.outputTokens += result.usage.outputTokens
+        this.stats.cacheReadTokens += result.usage.cacheReadTokens || 0
+        this.stats.cacheWriteTokens += result.usage.cacheWriteTokens || 0
+        this.stats.reasoningTokens += result.usage.reasoningTokens || 0
+        this.stats.totalCredits += result.usage.credits || 0
+        this.events.onCreditsUpdate?.(this.stats.totalCredits)
+        this.events.onTokensUpdate?.(this.stats.inputTokens, this.stats.outputTokens)
+        const respTime = Date.now() - startTime
         this.accountPool.recordSuccess(
           usedAccount.id,
-          result.usage.inputTokens + result.usage.outputTokens
+          result.usage.inputTokens + result.usage.outputTokens,
+          respTime
         )
 
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(response))
-        const respTime = Date.now() - startTime
         this.events.onResponse?.({
+          requestId,
           path: '/v1/chat/completions',
           model: request.model,
+          apiKeyId: matchedApiKey?.id,
+          accountId: usedAccount.id,
           status: 200,
           tokens: result.usage.inputTokens + result.usage.outputTokens,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
           cacheReadTokens: result.usage.cacheReadTokens,
+          cacheWriteTokens: result.usage.cacheWriteTokens,
           reasoningTokens: result.usage.reasoningTokens,
           credits: result.usage.credits,
           responseTime: respTime
         })
         this.recordRequest({
+          requestId,
           path: '/v1/chat/completions',
           model: request.model,
+          apiKeyId: matchedApiKey?.id,
           accountId: usedAccount.id,
+          status: 200,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
+          cacheReadTokens: result.usage.cacheReadTokens,
+          cacheWriteTokens: result.usage.cacheWriteTokens,
+          reasoningTokens: result.usage.reasoningTokens,
           credits: result.usage.credits,
           responseTime: respTime,
           success: true
@@ -3076,7 +3302,9 @@ export class ProxyServer {
         '/v1/chat/completions',
         request.model,
         startTime,
-        signal
+        signal,
+        requestId,
+        matchedApiKey?.id
       )
     }
   }
@@ -3090,10 +3318,16 @@ export class ProxyServer {
     this.throwIfAborted(signal)
     const matchedApiKey = (req as unknown as { matchedApiKey?: import('./types').ApiKey })
       .matchedApiKey
+    const requestId = uuidv4()
     const startTime = Date.now()
 
     this.recordNewRequest()
-    this.events.onRequest?.({ path: '/v1/responses', method: 'POST' })
+    this.events.onRequest?.({
+      requestId,
+      path: '/v1/responses',
+      method: 'POST',
+      apiKeyId: matchedApiKey?.id
+    })
 
     let responseRequest: OpenAIResponsesRequest
     let chatRequest: OpenAIChatRequest
@@ -3109,6 +3343,10 @@ export class ProxyServer {
         affinityHintResp = `${keyPrefix}:${rawHintResp}`
       }
       chatRequest.model = this.applyModelMapping(chatRequest.model, matchedApiKey?.id)
+      if (!this.isApiKeyModelAllowed(matchedApiKey?.id, chatRequest.model)) {
+        this.sendError(res, 403, `Model ${chatRequest.model} is not allowed for this API key`)
+        return
+      }
       processedRequest = await this.resolveOpenAIHttpImages(
         this.prepareOpenAIRequest(chatRequest),
         signal
@@ -3118,9 +3356,18 @@ export class ProxyServer {
       this.recordRequestFailed()
       const message = error instanceof Error ? error.message : 'Invalid request'
       this.sendError(res, 400, message)
-      this.events.onResponse?.({ path: '/v1/responses', status: 400, error: message })
-      this.recordRequest({
+      this.events.onResponse?.({
+        requestId,
         path: '/v1/responses',
+        apiKeyId: matchedApiKey?.id,
+        status: 400,
+        error: message
+      })
+      this.recordRequest({
+        requestId,
+        path: '/v1/responses',
+        apiKeyId: matchedApiKey?.id,
+        status: 400,
         responseTime: Date.now() - startTime,
         success: false,
         error: message
@@ -3140,21 +3387,32 @@ export class ProxyServer {
           : 'No available accounts'
       this.sendError(res, 503, errorMsg)
       this.events.onResponse?.({
+        requestId,
         path: '/v1/responses',
         model: chatRequest.model,
+        apiKeyId: matchedApiKey?.id,
         status: 503,
         error: errorMsg
       })
       this.recordRequest({
+        requestId,
         path: '/v1/responses',
         model: chatRequest.model,
+        apiKeyId: matchedApiKey?.id,
+        status: 503,
         success: false,
         error: 'No available accounts'
       })
       return
     }
 
-    this.events.onRequest?.({ path: '/v1/responses', method: 'POST', accountId: account.id })
+    this.events.onRequest?.({
+      requestId,
+      path: '/v1/responses',
+      method: 'POST',
+      apiKeyId: matchedApiKey?.id,
+      accountId: account.id
+    })
 
     try {
       const toolNameRegistry = new ToolNameRegistry()
@@ -3238,29 +3496,46 @@ export class ProxyServer {
         this.stats.totalTokens += result.usage.inputTokens + result.usage.outputTokens
         this.stats.inputTokens += result.usage.inputTokens
         this.stats.outputTokens += result.usage.outputTokens
+        this.stats.cacheReadTokens += result.usage.cacheReadTokens || 0
+        this.stats.cacheWriteTokens += result.usage.cacheWriteTokens || 0
+        this.stats.reasoningTokens += result.usage.reasoningTokens || 0
+        this.stats.totalCredits += result.usage.credits || 0
+        this.events.onCreditsUpdate?.(this.stats.totalCredits)
+        this.events.onTokensUpdate?.(this.stats.inputTokens, this.stats.outputTokens)
+        const respTime = Date.now() - startTime
         this.accountPool.recordSuccess(
           usedAccount.id,
-          result.usage.inputTokens + result.usage.outputTokens
+          result.usage.inputTokens + result.usage.outputTokens,
+          respTime
         )
-        const respTime = Date.now() - startTime
         this.events.onResponse?.({
+          requestId,
           path: '/v1/responses',
           model: chatRequest.model,
+          apiKeyId: matchedApiKey?.id,
+          accountId: usedAccount.id,
           status: 200,
           tokens: result.usage.inputTokens + result.usage.outputTokens,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
           cacheReadTokens: result.usage.cacheReadTokens,
+          cacheWriteTokens: result.usage.cacheWriteTokens,
           reasoningTokens: result.usage.reasoningTokens,
           credits: result.usage.credits,
           responseTime: respTime
         })
         this.recordRequest({
+          requestId,
           path: '/v1/responses',
           model: chatRequest.model,
+          apiKeyId: matchedApiKey?.id,
           accountId: usedAccount.id,
+          status: 200,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
+          cacheReadTokens: result.usage.cacheReadTokens,
+          cacheWriteTokens: result.usage.cacheWriteTokens,
+          reasoningTokens: result.usage.reasoningTokens,
           credits: result.usage.credits,
           responseTime: respTime,
           success: true
@@ -3305,32 +3580,49 @@ export class ProxyServer {
       this.stats.totalTokens += result.usage.inputTokens + result.usage.outputTokens
       this.stats.inputTokens += result.usage.inputTokens
       this.stats.outputTokens += result.usage.outputTokens
+      this.stats.cacheReadTokens += result.usage.cacheReadTokens || 0
+      this.stats.cacheWriteTokens += result.usage.cacheWriteTokens || 0
+      this.stats.reasoningTokens += result.usage.reasoningTokens || 0
+      this.stats.totalCredits += result.usage.credits || 0
+      this.events.onCreditsUpdate?.(this.stats.totalCredits)
+      this.events.onTokensUpdate?.(this.stats.inputTokens, this.stats.outputTokens)
+      const respTime = Date.now() - startTime
       this.accountPool.recordSuccess(
         usedAccount.id,
-        result.usage.inputTokens + result.usage.outputTokens
+        result.usage.inputTokens + result.usage.outputTokens,
+        respTime
       )
 
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(response))
-      const respTime = Date.now() - startTime
       this.events.onResponse?.({
+        requestId,
         path: '/v1/responses',
         model: chatRequest.model,
+        apiKeyId: matchedApiKey?.id,
+        accountId: usedAccount.id,
         status: 200,
         tokens: result.usage.inputTokens + result.usage.outputTokens,
         inputTokens: result.usage.inputTokens,
         outputTokens: result.usage.outputTokens,
         cacheReadTokens: result.usage.cacheReadTokens,
+        cacheWriteTokens: result.usage.cacheWriteTokens,
         reasoningTokens: result.usage.reasoningTokens,
         credits: result.usage.credits,
         responseTime: respTime
       })
       this.recordRequest({
+        requestId,
         path: '/v1/responses',
         model: chatRequest.model,
+        apiKeyId: matchedApiKey?.id,
         accountId: usedAccount.id,
+        status: 200,
         inputTokens: result.usage.inputTokens,
         outputTokens: result.usage.outputTokens,
+        cacheReadTokens: result.usage.cacheReadTokens,
+        cacheWriteTokens: result.usage.cacheWriteTokens,
+        reasoningTokens: result.usage.reasoningTokens,
         credits: result.usage.credits,
         responseTime: respTime,
         success: true
@@ -3353,7 +3645,9 @@ export class ProxyServer {
         '/v1/responses',
         chatRequest.model,
         startTime,
-        signal
+        signal,
+        requestId,
+        matchedApiKey?.id
       )
     }
   }
@@ -3370,7 +3664,8 @@ export class ProxyServer {
     headersSent: boolean = false,
     matchedApiKey?: import('./types').ApiKey,
     toolNameRegistry: ToolNameRegistry = new ToolNameRegistry(),
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    requestId?: string
   ): Promise<void> {
     if (!headersSent) {
       res.writeHead(200, {
@@ -3447,26 +3742,40 @@ export class ProxyServer {
           this.stats.totalCredits += usage.credits || 0
           this.events.onCreditsUpdate?.(this.stats.totalCredits)
           this.events.onTokensUpdate?.(this.stats.inputTokens, this.stats.outputTokens)
-          this.accountPool.recordSuccess(account.id, usage.inputTokens + usage.outputTokens)
           const oaiRespTime = Date.now() - startTime
+          this.accountPool.recordSuccess(
+            account.id,
+            usage.inputTokens + usage.outputTokens,
+            oaiRespTime
+          )
           this.events.onResponse?.({
+            requestId,
             path: '/v1/chat/completions',
             model,
+            apiKeyId: matchedApiKey?.id,
+            accountId: account.id,
             status: 200,
             tokens: usage.inputTokens + usage.outputTokens,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
             reasoningTokens: usage.reasoningTokens,
             credits: usage.credits,
             responseTime: oaiRespTime
           })
           this.recordRequest({
+            requestId,
             path: '/v1/chat/completions',
             model,
+            apiKeyId: matchedApiKey?.id,
             accountId: account.id,
+            status: 200,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+            reasoningTokens: usage.reasoningTokens,
             credits: usage.credits,
             responseTime: oaiRespTime,
             success: true
@@ -3528,15 +3837,21 @@ export class ProxyServer {
             errStatusCode ? parseInt(errStatusCode) : undefined
           )
           this.events.onResponse?.({
+            requestId,
             path: '/v1/chat/completions',
             model,
+            apiKeyId: matchedApiKey?.id,
+            accountId: account.id,
             status: 500,
             error: error.message
           })
           this.recordRequest({
+            requestId,
             path: '/v1/chat/completions',
             model,
+            apiKeyId: matchedApiKey?.id,
             accountId: account.id,
+            status: 500,
             responseTime: Date.now() - startTime,
             success: false,
             error: error.message
@@ -3567,6 +3882,7 @@ export class ProxyServer {
     const request: ClaudeRequest = JSON.parse(body)
     const matchedApiKey = (req as unknown as { matchedApiKey?: import('./types').ApiKey })
       .matchedApiKey
+    const requestId = uuidv4()
 
     // 提取 session hint（用于稳定 conversationId），拼入 API Key hash 隔离不同用户
     const rawHint = ProxyServer.extractSessionHint(req, request)
@@ -3579,11 +3895,25 @@ export class ProxyServer {
 
     // 应用模型映射
     request.model = this.applyModelMapping(request.model, matchedApiKey?.id)
+    if (!this.isApiKeyModelAllowed(matchedApiKey?.id, request.model)) {
+      this.sendError(
+        res,
+        403,
+        `Model ${request.model} is not allowed for this API key`,
+        'anthropic'
+      )
+      return
+    }
 
     const startTime = Date.now()
 
     this.recordNewRequest()
-    this.events.onRequest?.({ path: '/v1/messages', method: 'POST' })
+    this.events.onRequest?.({
+      requestId,
+      path: '/v1/messages',
+      method: 'POST',
+      apiKeyId: matchedApiKey?.id
+    })
 
     let processedRequest: ClaudeRequest
     try {
@@ -3597,14 +3927,19 @@ export class ProxyServer {
       const message = error instanceof Error ? error.message : 'Invalid request'
       this.sendError(res, 400, message, 'anthropic')
       this.events.onResponse?.({
+        requestId,
         path: '/v1/messages',
         model: request.model,
+        apiKeyId: matchedApiKey?.id,
         status: 400,
         error: message
       })
       this.recordRequest({
+        requestId,
         path: '/v1/messages',
         model: request.model,
+        apiKeyId: matchedApiKey?.id,
+        status: 400,
         responseTime: Date.now() - startTime,
         success: false,
         error: message
@@ -3625,21 +3960,32 @@ export class ProxyServer {
           : 'No available accounts'
       this.sendError(res, 503, errorMsg, 'anthropic')
       this.events.onResponse?.({
+        requestId,
         path: '/v1/messages',
         model: request.model,
+        apiKeyId: matchedApiKey?.id,
         status: 503,
         error: errorMsg
       })
       this.recordRequest({
+        requestId,
         path: '/v1/messages',
         model: request.model,
+        apiKeyId: matchedApiKey?.id,
+        status: 503,
         success: false,
         error: errorMsg
       })
       return
     }
 
-    this.events.onRequest?.({ path: '/v1/messages', method: 'POST', accountId: account.id })
+    this.events.onRequest?.({
+      requestId,
+      path: '/v1/messages',
+      method: 'POST',
+      apiKeyId: matchedApiKey?.id,
+      accountId: account.id
+    })
 
     try {
       const toolNameRegistry = new ToolNameRegistry()
@@ -3698,7 +4044,8 @@ export class ProxyServer {
           matchedApiKey,
           toolNameRegistry,
           signal,
-          cacheProfile ? { ...cacheUsage, cacheProfile, accountId: account.id } : undefined
+          cacheProfile ? { ...cacheUsage, cacheProfile, accountId: account.id } : undefined,
+          requestId
         )
       } else {
         // 非流式响应（带重试机制）
@@ -3734,32 +4081,49 @@ export class ProxyServer {
         this.stats.totalTokens += result.usage.inputTokens + result.usage.outputTokens
         this.stats.inputTokens += result.usage.inputTokens
         this.stats.outputTokens += result.usage.outputTokens
+        this.stats.cacheReadTokens += result.usage.cacheReadTokens || 0
+        this.stats.cacheWriteTokens += result.usage.cacheWriteTokens || 0
+        this.stats.reasoningTokens += result.usage.reasoningTokens || 0
+        this.stats.totalCredits += result.usage.credits || 0
+        this.events.onCreditsUpdate?.(this.stats.totalCredits)
+        this.events.onTokensUpdate?.(this.stats.inputTokens, this.stats.outputTokens)
+        const respTime = Date.now() - startTime
         this.accountPool.recordSuccess(
           usedAccount.id,
-          result.usage.inputTokens + result.usage.outputTokens
+          result.usage.inputTokens + result.usage.outputTokens,
+          respTime
         )
 
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(response))
-        const respTime = Date.now() - startTime
         this.events.onResponse?.({
+          requestId,
           path: '/v1/messages',
           model: request.model,
+          apiKeyId: matchedApiKey?.id,
+          accountId: usedAccount.id,
           status: 200,
           tokens: result.usage.inputTokens + result.usage.outputTokens,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
           cacheReadTokens: result.usage.cacheReadTokens,
+          cacheWriteTokens: result.usage.cacheWriteTokens,
           reasoningTokens: result.usage.reasoningTokens,
           credits: result.usage.credits,
           responseTime: respTime
         })
         this.recordRequest({
+          requestId,
           path: '/v1/messages',
           model: request.model,
+          apiKeyId: matchedApiKey?.id,
           accountId: usedAccount.id,
+          status: 200,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
+          cacheReadTokens: result.usage.cacheReadTokens,
+          cacheWriteTokens: result.usage.cacheWriteTokens,
+          reasoningTokens: result.usage.reasoningTokens,
           credits: result.usage.credits,
           responseTime: respTime,
           success: true
@@ -3773,7 +4137,9 @@ export class ProxyServer {
         '/v1/messages',
         request.model,
         startTime,
-        signal
+        signal,
+        requestId,
+        matchedApiKey?.id
       )
     }
   }
@@ -3792,7 +4158,8 @@ export class ProxyServer {
     matchedApiKey?: import('./types').ApiKey,
     toolNameRegistry: ToolNameRegistry = new ToolNameRegistry(),
     signal?: AbortSignal,
-    simulatedCacheUsage?: CacheUsage & { cacheProfile?: CacheProfile; accountId?: string }
+    simulatedCacheUsage?: CacheUsage & { cacheProfile?: CacheProfile; accountId?: string },
+    requestId?: string
   ): Promise<void> {
     if (!headersSent) {
       res.writeHead(200, {
@@ -4018,31 +4385,47 @@ export class ProxyServer {
           this.stats.totalCredits += usage.credits || 0
           this.events.onCreditsUpdate?.(this.stats.totalCredits)
           this.events.onTokensUpdate?.(this.stats.inputTokens, this.stats.outputTokens)
-          this.accountPool.recordSuccess(account.id, usage.inputTokens + usage.outputTokens)
           this.stats.cacheReadTokens +=
             usage.cacheReadTokens || simulatedCacheUsage?.cacheReadInputTokens || 0
           this.stats.cacheWriteTokens +=
             usage.cacheWriteTokens || simulatedCacheUsage?.cacheCreationInputTokens || 0
           this.stats.reasoningTokens += usage.reasoningTokens || 0
           const respTime = Date.now() - startTime
+          this.accountPool.recordSuccess(
+            account.id,
+            usage.inputTokens + usage.outputTokens,
+            respTime
+          )
           this.events.onResponse?.({
+            requestId,
             path: '/v1/messages',
             model,
+            apiKeyId: matchedApiKey?.id,
+            accountId: account.id,
             status: 200,
             tokens: usage.inputTokens + usage.outputTokens,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             cacheReadTokens: usage.cacheReadTokens || simulatedCacheUsage?.cacheReadInputTokens,
+            cacheWriteTokens:
+              usage.cacheWriteTokens || simulatedCacheUsage?.cacheCreationInputTokens,
             reasoningTokens: usage.reasoningTokens,
             credits: usage.credits,
             responseTime: respTime
           })
           this.recordRequest({
+            requestId,
             path: '/v1/messages',
             model,
+            apiKeyId: matchedApiKey?.id,
             accountId: account.id,
+            status: 200,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens || simulatedCacheUsage?.cacheReadInputTokens,
+            cacheWriteTokens:
+              usage.cacheWriteTokens || simulatedCacheUsage?.cacheCreationInputTokens,
+            reasoningTokens: usage.reasoningTokens,
             credits: usage.credits,
             responseTime: respTime,
             success: true
@@ -4100,15 +4483,21 @@ export class ProxyServer {
             errStatusCode2 ? parseInt(errStatusCode2) : undefined
           )
           this.events.onResponse?.({
+            requestId,
             path: '/v1/messages',
             model,
+            apiKeyId: matchedApiKey?.id,
+            accountId: account.id,
             status: 500,
             error: error.message
           })
           this.recordRequest({
+            requestId,
             path: '/v1/messages',
             model,
+            apiKeyId: matchedApiKey?.id,
             accountId: account.id,
+            status: 500,
             responseTime: Date.now() - startTime,
             success: false,
             error: error.message
@@ -4139,7 +4528,9 @@ export class ProxyServer {
     path: string,
     model?: string,
     startTime?: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    requestId?: string,
+    apiKeyId?: string
   ): void {
     if (this.isAbortError(error, signal) || this.isResponseClosed(res)) return
     this.recordRequestFailed()
@@ -4165,11 +4556,22 @@ export class ProxyServer {
         }
         res.end()
       }
-      this.events.onResponse?.({ path, status: statusCode, error: error.message })
-      this.recordRequest({
+      this.events.onResponse?.({
+        requestId,
         path,
         model,
+        apiKeyId,
         accountId: account.id,
+        status: statusCode,
+        error: error.message
+      })
+      this.recordRequest({
+        requestId,
+        path,
+        model,
+        apiKeyId,
+        accountId: account.id,
+        status: statusCode,
         responseTime: startTime ? Date.now() - startTime : 0,
         success: false,
         error: error.message
@@ -4183,11 +4585,22 @@ export class ProxyServer {
       error.message,
       this.isAnthropicPath(path) ? 'anthropic' : 'openai'
     )
-    this.events.onResponse?.({ path, status: statusCode, error: error.message })
-    this.recordRequest({
+    this.events.onResponse?.({
+      requestId,
       path,
       model,
+      apiKeyId,
       accountId: account.id,
+      status: statusCode,
+      error: error.message
+    })
+    this.recordRequest({
+      requestId,
+      path,
+      model,
+      apiKeyId,
+      accountId: account.id,
+      status: statusCode,
       responseTime: startTime ? Date.now() - startTime : 0,
       success: false,
       error: error.message
@@ -4475,23 +4888,35 @@ export class ProxyServer {
 
   // 记录请求到 recentRequests
   private recordRequest(log: {
+    requestId?: string
     path: string
     model?: string
+    apiKeyId?: string
     accountId?: string
+    status?: number
     inputTokens?: number
     outputTokens?: number
+    cacheReadTokens?: number
+    cacheWriteTokens?: number
+    reasoningTokens?: number
     credits?: number
     responseTime?: number
     success: boolean
     error?: string
   }): void {
     this.stats.recentRequests.push({
+      requestId: log.requestId || uuidv4(),
       timestamp: Date.now(),
       path: log.path,
       model: log.model || 'unknown',
+      apiKeyId: log.apiKeyId,
       accountId: log.accountId || 'unknown',
+      status: log.status ?? (log.success ? 200 : 500),
       inputTokens: log.inputTokens || 0,
       outputTokens: log.outputTokens || 0,
+      cacheReadTokens: log.cacheReadTokens,
+      cacheWriteTokens: log.cacheWriteTokens,
+      reasoningTokens: log.reasoningTokens,
       credits: log.credits,
       responseTime: log.responseTime || 0,
       success: log.success,

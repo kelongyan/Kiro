@@ -4,13 +4,17 @@ import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '../ui'
 
 interface LogEntry {
   time: string
+  requestId?: string
   path: string
   model?: string
+  apiKeyId?: string
+  accountId?: string
   status: number
   tokens?: number
   inputTokens?: number
   outputTokens?: number
   cacheReadTokens?: number
+  cacheWriteTokens?: number
   reasoningTokens?: number
   credits?: number
   responseTime?: number
@@ -46,9 +50,24 @@ export function ProxyLogsDialog({
 
   const handleExport = () => {
     const content = logs
-      .map(
-        (log) =>
-          `${log.time}\t${log.path}\t${log.status}${log.credits ? `\t${log.credits.toFixed(6)} credits` : ''}`
+      .map((log) =>
+        [
+          log.time,
+          log.requestId || '-',
+          log.apiKeyId || '-',
+          log.accountId || '-',
+          log.path,
+          log.model || '-',
+          log.status,
+          log.inputTokens || 0,
+          log.outputTokens || 0,
+          log.cacheReadTokens || 0,
+          log.cacheWriteTokens || 0,
+          log.reasoningTokens || 0,
+          log.credits ? `${log.credits.toFixed(6)} credits` : '-',
+          log.responseTime ? `${log.responseTime}ms` : '-',
+          log.error || ''
+        ].join('\t')
       )
       .join('\n')
     const blob = new Blob([content], { type: 'text/plain' })
@@ -68,7 +87,7 @@ export function ProxyLogsDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={() => onOpenChange(false)} />
-      <Card className="relative w-[900px] max-h-[80vh] shadow-2xl border-0 overflow-hidden animate-in fade-in zoom-in-95 duration-200 glass-card-strong">
+      <Card className="relative w-[1100px] max-w-[95vw] max-h-[80vh] shadow-2xl border-0 overflow-hidden animate-in fade-in zoom-in-95 duration-200 glass-card-strong">
         <CardHeader className="pb-3 border-b sticky top-0 z-10">
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">{isEn ? 'Request Logs' : '请求日志'}</CardTitle>
@@ -166,12 +185,14 @@ export function ProxyLogsDialog({
                 <thead className="bg-muted/50 sticky top-0">
                   <tr>
                     <th className="text-left p-2 font-medium">{isEn ? 'Time' : '时间'}</th>
+                    <th className="text-left p-2 font-medium">{isEn ? 'Trace' : '链路'}</th>
                     <th className="text-left p-2 font-medium">{isEn ? 'Path' : '路径'}</th>
                     <th className="text-left p-2 font-medium">{isEn ? 'Model' : '模型'}</th>
                     <th className="text-center p-2 font-medium">{isEn ? 'Status' : '状态'}</th>
                     <th className="text-center p-2 font-medium">{isEn ? 'In' : '输入'}</th>
                     <th className="text-center p-2 font-medium">{isEn ? 'Out' : '输出'}</th>
                     <th className="text-center p-2 font-medium">Cache</th>
+                    <th className="text-center p-2 font-medium">{isEn ? 'Reason' : '推理'}</th>
                     <th className="text-right p-2 font-medium">Credits</th>
                     <th className="text-right p-2 font-medium">{isEn ? 'Time' : '耗时'}</th>
                   </tr>
@@ -180,6 +201,22 @@ export function ProxyLogsDialog({
                   {logs.map((log, idx) => (
                     <tr key={idx} className="border-b border-muted/30 hover:bg-muted/30">
                       <td className="p-2 text-muted-foreground whitespace-nowrap">{log.time}</td>
+                      <td className="p-2 min-w-[150px]">
+                        <div className="space-y-0.5 text-[11px] leading-4">
+                          <div className="truncate" title={log.requestId}>
+                            <span className="text-muted-foreground">req </span>
+                            {log.requestId ? log.requestId.slice(0, 8) : '-'}
+                          </div>
+                          <div className="truncate" title={log.apiKeyId}>
+                            <span className="text-muted-foreground">key </span>
+                            {log.apiKeyId ? log.apiKeyId.slice(0, 8) : '-'}
+                          </div>
+                          <div className="truncate" title={log.accountId}>
+                            <span className="text-muted-foreground">acc </span>
+                            {log.accountId ? log.accountId.slice(0, 8) : '-'}
+                          </div>
+                        </div>
+                      </td>
                       <td className="p-2 truncate max-w-[200px]" title={log.path}>
                         {log.path}
                       </td>
@@ -233,7 +270,12 @@ export function ProxyLogsDialog({
                         {log.outputTokens ? log.outputTokens.toLocaleString() : '-'}
                       </td>
                       <td className="p-2 text-center text-success">
-                        {log.cacheReadTokens ? log.cacheReadTokens.toLocaleString() : '-'}
+                        {log.cacheReadTokens || log.cacheWriteTokens
+                          ? `${(log.cacheReadTokens || 0).toLocaleString()}/${(log.cacheWriteTokens || 0).toLocaleString()}`
+                          : '-'}
+                      </td>
+                      <td className="p-2 text-center text-violet-500">
+                        {log.reasoningTokens ? log.reasoningTokens.toLocaleString() : '-'}
                       </td>
                       <td className="p-2 text-right text-muted-foreground">
                         {log.credits ? log.credits.toFixed(6) : '-'}

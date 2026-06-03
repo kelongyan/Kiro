@@ -10,7 +10,7 @@ import { GroupManageDialog } from './GroupManageDialog'
 import { TagManageDialog } from './TagManageDialog'
 import { ExportDialog } from './ExportDialog'
 import { Button } from '../ui'
-import type { Account } from '@/types/account'
+import type { Account, BatchOperationResult } from '@/types/account'
 import { ArrowLeft, Loader2, Users } from 'lucide-react'
 import { importTextFile } from '@/services/browser-files'
 
@@ -38,6 +38,19 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
   }, [viewMode])
   const { t } = useTranslation()
   const isEn = t('common.unknown') === 'Unknown'
+
+  const formatImportResultMessage = (label: string, result: BatchOperationResult): string => {
+    const skippedInfo = result.errors.find((error) => error.id === 'skipped')
+    const failedErrors = result.errors.filter((error) => error.id !== 'skipped')
+    const skippedMsg = skippedInfo ? `，${skippedInfo.error}` : ''
+    const detail = failedErrors
+      .slice(0, 3)
+      .map((error) => `${error.id}: ${error.error}`)
+      .join('；')
+    const more = failedErrors.length > 3 ? `；另有 ${failedErrors.length - 3} 条` : ''
+    const detailMsg = detail ? `\n失败明细：${detail}${more}` : ''
+    return `${label}：成功 ${result.success} 个，失败 ${result.failed} 个${skippedMsg}${detailMsg}`
+  }
 
   // 获取要导出的账号列表
   const getExportAccounts = () => {
@@ -93,9 +106,7 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
         const data = JSON.parse(content)
         if (data.version && data.accounts) {
           const result = importFromExportData(data)
-          const skippedInfo = result.errors.find((e) => e.id === 'skipped')
-          const skippedMsg = skippedInfo ? `，${skippedInfo.error}` : ''
-          alert(`导入完成：成功 ${result.success} 个${skippedMsg}`)
+          alert(formatImportResultMessage('导入完成', result))
         } else {
           alert('无效的 JSON 文件格式')
         }
@@ -108,21 +119,18 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
         }
 
         // 跳过标题行，解析数据行
-        const items = lines
-          .slice(1)
-          .map((line) => {
-            const cols = parseCSVLine(line)
-            return {
-              email: cols[0] || '',
-              nickname: cols[1] || undefined,
-              idp: cols[2] || 'Google',
-              refreshToken: cols[3] || '',
-              clientId: cols[4] || '',
-              clientSecret: cols[5] || '',
-              region: cols[6] || 'us-east-1'
-            }
-          })
-          .filter((item) => item.email && item.refreshToken)
+        const items = lines.slice(1).map((line) => {
+          const cols = parseCSVLine(line)
+          return {
+            email: cols[0] || '',
+            nickname: cols[1] || undefined,
+            idp: cols[2] || 'Google',
+            refreshToken: cols[3] || '',
+            clientId: cols[4] || '',
+            clientSecret: cols[5] || '',
+            region: cols[6] || 'us-east-1'
+          }
+        })
 
         if (items.length === 0) {
           alert('未找到有效的账号数据（需要邮箱和 RefreshToken）')
@@ -130,7 +138,7 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
         }
 
         const result = importAccounts(items)
-        alert(`导入完成：成功 ${result.success} 个，失败 ${result.failed} 个`)
+        alert(formatImportResultMessage('导入完成', result))
       } else if (format === 'txt') {
         // TXT 格式：自动识别卡密格式或普通格式
         const lines = content.split('\n').filter((line) => line.trim() && !line.startsWith('#'))
@@ -141,27 +149,25 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
         if (isKamiFormat) {
           // 卡密格式：邮箱----密码----RefreshToken----ClientId----ClientSecret
           // 自动识别分隔符：----、\t、连续空格
-          const items = lines
-            .map((line) => {
-              let parts: string[]
-              if (line.includes('----')) {
-                parts = line.split('----')
-              } else if (line.includes('\t')) {
-                parts = line.split('\t')
-              } else {
-                parts = line.split(/\s{2,}/)
-              }
-              const rawPwd = parts[1]?.trim()
-              return {
-                email: parts[0]?.trim() || '',
-                password: rawPwd && rawPwd !== 'no_password' ? rawPwd : undefined,
-                refreshToken: parts[2]?.trim() || '',
-                clientId: parts[3]?.trim() || undefined,
-                clientSecret: parts[4]?.trim() || undefined,
-                idp: 'BuilderId' as const
-              }
-            })
-            .filter((item) => item.email && item.refreshToken)
+          const items = lines.map((line) => {
+            let parts: string[]
+            if (line.includes('----')) {
+              parts = line.split('----')
+            } else if (line.includes('\t')) {
+              parts = line.split('\t')
+            } else {
+              parts = line.split(/\s{2,}/)
+            }
+            const rawPwd = parts[1]?.trim()
+            return {
+              email: parts[0]?.trim() || '',
+              password: rawPwd && rawPwd !== 'no_password' ? rawPwd : undefined,
+              refreshToken: parts[2]?.trim() || '',
+              clientId: parts[3]?.trim() || undefined,
+              clientSecret: parts[4]?.trim() || undefined,
+              idp: 'BuilderId' as const
+            }
+          })
 
           if (items.length === 0) {
             alert(
@@ -171,20 +177,18 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
           }
 
           const result = importAccounts(items)
-          alert(`卡密导入完成：成功 ${result.success} 个，失败 ${result.failed} 个`)
+          alert(formatImportResultMessage('卡密导入完成', result))
         } else {
           // 普通 TXT 格式：邮箱,RefreshToken 或 邮箱|RefreshToken
-          const items = lines
-            .map((line) => {
-              const parts = line.includes('|') ? line.split('|') : line.split(',')
-              return {
-                email: parts[0]?.trim() || '',
-                refreshToken: parts[1]?.trim() || '',
-                nickname: parts[2]?.trim() || undefined,
-                idp: parts[3]?.trim() || 'Google'
-              }
-            })
-            .filter((item) => item.email && item.refreshToken)
+          const items = lines.map((line) => {
+            const parts = line.includes('|') ? line.split('|') : line.split(',')
+            return {
+              email: parts[0]?.trim() || '',
+              refreshToken: parts[1]?.trim() || '',
+              nickname: parts[2]?.trim() || undefined,
+              idp: parts[3]?.trim() || 'Google'
+            }
+          })
 
           if (items.length === 0) {
             alert(
@@ -194,7 +198,7 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
           }
 
           const result = importAccounts(items)
-          alert(`导入完成：成功 ${result.success} 个，失败 ${result.failed} 个`)
+          alert(formatImportResultMessage('导入完成', result))
         }
       } else {
         alert(`不支持的文件格式：${format}`)

@@ -12,8 +12,7 @@ import type {
   AccountImportItem,
   BatchOperationResult,
   AccountSubscription,
-  SubscriptionType,
-  IdpType
+  SubscriptionType
 } from '../types/account'
 import type {
   ProxyEntry,
@@ -48,6 +47,8 @@ import {
   proxyPoolValidate
 } from '../services/local-admin-diagnostics'
 import { getAppVersion, setProxySettings } from '../services/browser-runtime'
+import { pauseSchedulerTask, resumeSchedulerTask } from '../services/local-admin-scheduler'
+import { prepareAccountImportBatch, prepareExportDataImport } from './account-import'
 
 // ============================================
 // 账号管理 Store
@@ -1213,66 +1214,13 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
   },
 
   importAccounts: (items) => {
-    const result: BatchOperationResult = { success: 0, failed: 0, errors: [] }
-
-    // 验证 idp 是否有效
-    const validIdps = ['Google', 'Github', 'BuilderId'] as const
-    const normalizeIdp = (idp?: string): IdpType => {
-      if (!idp) return 'Google'
-      const normalized = validIdps.find((v) => v.toLowerCase() === idp.toLowerCase())
-      return normalized || 'Google'
-    }
-
-    // 批量构造账号对象 + 一次 set，避免 N 次 new Map(O(n²)) 与 N 次 re-render
-    const newAccounts: Account[] = []
-    for (const item of items) {
-      try {
-        const now = Date.now()
-        const id = uuidv4()
-        const machineId = generateRandomMachineId()
-
-        const account: Account = {
-          id,
-          createdAt: now,
-          isActive: false,
-          machineId,
-          email: item.email,
-          password: item.password,
-          nickname: item.nickname,
-          idp: normalizeIdp(item.idp as string),
-          credentials: {
-            accessToken: item.accessToken || '',
-            csrfToken: item.csrfToken || '',
-            refreshToken: item.refreshToken,
-            clientId: item.clientId,
-            clientSecret: item.clientSecret,
-            region: item.region || 'us-east-1',
-            expiresAt: now + 3600 * 1000
-          },
-          subscription: {
-            type: 'Free'
-          },
-          usage: {
-            current: 0,
-            limit: 25,
-            percentUsed: 0,
-            lastUpdated: now
-          },
-          groupId: item.groupId,
-          tags: item.tags ?? [],
-          status: 'unknown',
-          lastUsedAt: now
-        }
-        newAccounts.push(account)
-        result.success++
-      } catch (error) {
-        result.failed++
-        result.errors.push({
-          id: item.email,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        })
-      }
-    }
+    const { accounts: newAccounts, result } = prepareAccountImportBatch({
+      items,
+      existingAccounts: get().accounts.values(),
+      now: Date.now(),
+      createId: uuidv4,
+      createMachineId: generateRandomMachineId
+    })
 
     if (newAccounts.length > 0) {
       set((state) => {
@@ -1291,80 +1239,33 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
   },
 
   importFromExportData: (data) => {
-    const result: BatchOperationResult = { success: 0, failed: 0, errors: [] }
     const { accounts: existingAccounts } = get()
-
-    // 检查账户是否已存在（同邮箱+同provider 或 同userId 才算重复）
-    const isAccountExists = (email: string, userId?: string, provider?: string): boolean => {
-      return Array.from(existingAccounts.values()).some((acc) => {
-        // userId 相同则重复
-        if (userId && acc.userId === userId) return true
-        // email 相同且 provider 相同则重复（允许同邮箱不同登录方式）
-        if (acc.email === email && acc.credentials.provider === provider) return true
-        return false
-      })
-    }
-
-    // 去重：文件内部去重
-    const seenEmails = new Set<string>()
-    const seenUserIds = new Set<string>()
-    const uniqueAccounts = data.accounts.filter((acc) => {
-      if (seenEmails.has(acc.email) || (acc.userId && seenUserIds.has(acc.userId))) {
-        return false
-      }
-      seenEmails.add(acc.email)
-      if (acc.userId) seenUserIds.add(acc.userId)
-      return true
+    const {
+      accounts: accountsToAdd,
+      groups: groupsToAdd,
+      tags: tagsToAdd,
+      result
+    } = prepareExportDataImport({
+      data,
+      existingAccounts: existingAccounts.values()
     })
 
-    // 收集所有变更，一次性 set，避免 N 次 new Map（O(n²)）
-    let skipped = 0
-    const accountsToAdd: Account[] = []
-
-    for (const accountData of uniqueAccounts) {
-      // 检查本地是否已存在（传入 provider 参数）
-      if (
-        isAccountExists(accountData.email, accountData.userId, accountData.credentials?.provider)
-      ) {
-        skipped++
-        continue
-      }
-      try {
-        accountsToAdd.push({ ...accountData, isActive: false })
-        result.success++
-      } catch (error) {
-        result.failed++
-        result.errors.push({
-          id: accountData.id,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        })
-      }
-    }
-
     // 一次 set 应用所有分组、标签、账号 — 单次 re-render
-    if (data.groups.length > 0 || data.tags.length > 0 || accountsToAdd.length > 0) {
+    if (groupsToAdd.length > 0 || tagsToAdd.length > 0 || accountsToAdd.length > 0) {
       set((state) => {
-        const groups = data.groups.length > 0 ? new Map(state.groups) : state.groups
-        if (data.groups.length > 0) {
-          for (const group of data.groups) groups.set(group.id, group)
+        const groups = groupsToAdd.length > 0 ? new Map(state.groups) : state.groups
+        if (groupsToAdd.length > 0) {
+          for (const group of groupsToAdd) groups.set(group.id, group)
         }
-        const tags = data.tags.length > 0 ? new Map(state.tags) : state.tags
-        if (data.tags.length > 0) {
-          for (const tag of data.tags) tags.set(tag.id, tag)
+        const tags = tagsToAdd.length > 0 ? new Map(state.tags) : state.tags
+        if (tagsToAdd.length > 0) {
+          for (const tag of tagsToAdd) tags.set(tag.id, tag)
         }
         const accounts = accountsToAdd.length > 0 ? new Map(state.accounts) : state.accounts
         if (accountsToAdd.length > 0) {
           for (const acc of accountsToAdd) accounts.set(acc.id, acc)
         }
         return { groups, tags, accounts }
-      })
-    }
-
-    // 记录跳过数量
-    if (skipped > 0) {
-      result.errors.push({
-        id: 'skipped',
-        error: `跳过 ${skipped} 个已存在的账号`
       })
     }
 
@@ -1458,6 +1359,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
   batchRefreshTokens: async (ids) => {
     const { accounts, autoRefreshConcurrency } = get()
+    const preflightErrors: BatchOperationResult['errors'] = []
 
     // 收集需要刷新的账号
     const accountsToRefresh: Array<{
@@ -1475,7 +1377,14 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
     for (const id of ids) {
       const account = accounts.get(id)
-      if (!account?.credentials.refreshToken) continue
+      if (!account) {
+        preflightErrors.push({ id, error: '账号不存在' })
+        continue
+      }
+      if (!account.credentials.refreshToken) {
+        preflightErrors.push({ id, error: '缺少 RefreshToken' })
+        continue
+      }
 
       accountsToRefresh.push({
         id,
@@ -1492,7 +1401,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     }
 
     if (accountsToRefresh.length === 0) {
-      return { success: 0, failed: 0, errors: [] }
+      return { success: 0, failed: preflightErrors.length, errors: preflightErrors }
     }
 
     console.log(
@@ -1505,10 +1414,17 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
       autoRefreshConcurrency
     )
 
+    const remoteFailures = Math.max(0, result.failedCount)
     return {
       success: result.successCount,
-      failed: result.failedCount,
-      errors: []
+      failed: preflightErrors.length + result.failedCount,
+      errors: [
+        ...preflightErrors,
+        ...Array.from({ length: remoteFailures }, (_, index) => ({
+          id: `remote-${index + 1}`,
+          error: '后台返回失败，详情见账号状态'
+        }))
+      ]
     }
   },
 
@@ -1620,6 +1536,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
   batchCheckStatus: async (ids) => {
     const { accounts, autoRefreshConcurrency } = get()
+    const preflightErrors: BatchOperationResult['errors'] = []
 
     // 收集需要检查的账号（使用批量检查 API，不刷新 Token）
     const accountsToCheck: Array<{
@@ -1639,7 +1556,14 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
 
     for (const id of ids) {
       const account = accounts.get(id)
-      if (!account?.credentials.accessToken) continue
+      if (!account) {
+        preflightErrors.push({ id, error: '账号不存在' })
+        continue
+      }
+      if (!account.credentials.accessToken) {
+        preflightErrors.push({ id, error: '缺少 AccessToken' })
+        continue
+      }
 
       accountsToCheck.push({
         id,
@@ -1658,7 +1582,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     }
 
     if (accountsToCheck.length === 0) {
-      return { success: 0, failed: 0, errors: [] }
+      return { success: 0, failed: preflightErrors.length, errors: preflightErrors }
     }
 
     console.log(
@@ -1668,10 +1592,17 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     // 使用后台检查 API（只检查状态，不刷新 Token）
     const result = await backgroundBatchCheckViaHttp(accountsToCheck, autoRefreshConcurrency)
 
+    const remoteFailures = Math.max(0, result.failedCount)
     return {
       success: result.successCount,
-      failed: result.failedCount,
-      errors: []
+      failed: preflightErrors.length + result.failedCount,
+      errors: [
+        ...preflightErrors,
+        ...Array.from({ length: remoteFailures }, (_, index) => ({
+          id: `remote-${index + 1}`,
+          error: '后台返回失败，详情见账号状态'
+        }))
+      ]
     }
   },
 
@@ -2384,30 +2315,28 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
   startAutoTokenRefresh: () => {
     const { autoRefreshEnabled, autoRefreshInterval } = get()
 
-    // 如果已有定时器，先停止
     if (tokenRefreshTimer) {
       clearInterval(tokenRefreshTimer)
       tokenRefreshTimer = null
     }
 
-    // 如果未启用，不启动定时器
     if (!autoRefreshEnabled) {
       console.log('[AutoRefresh] Auto-refresh is disabled')
+      void pauseSchedulerTask('account-auto-refresh').catch((error) => {
+        console.error('[Scheduler] Failed to pause account auto-refresh:', error)
+      })
       return
     }
 
-    // 启动时触发后台刷新（在主进程执行，不阻塞 UI）
-    get().triggerBackgroundRefresh()
-
-    // 使用用户设置的间隔（分钟转毫秒）
-    const intervalMs = autoRefreshInterval * 60 * 1000
-    tokenRefreshTimer = setInterval(() => {
-      get().triggerBackgroundRefresh()
-    }, intervalMs)
-
-    console.log(
-      `[AutoRefresh] Token auto-refresh started with interval: ${autoRefreshInterval} minutes`
-    )
+    void resumeSchedulerTask('account-auto-refresh')
+      .then(() => {
+        console.log(
+          `[Scheduler] Account auto-refresh delegated to server scheduler (${autoRefreshInterval} minutes)`
+        )
+      })
+      .catch((error) => {
+        console.error('[Scheduler] Failed to start account auto-refresh:', error)
+      })
   },
 
   stopAutoTokenRefresh: () => {
@@ -2416,6 +2345,9 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
       tokenRefreshTimer = null
       console.log('[AutoRefresh] Token auto-refresh stopped')
     }
+    void pauseSchedulerTask('account-auto-refresh').catch((error) => {
+      console.error('[Scheduler] Failed to stop account auto-refresh:', error)
+    })
   },
 
   // 触发后台刷新（在主进程执行，不阻塞 UI）

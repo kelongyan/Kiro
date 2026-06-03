@@ -1,6 +1,7 @@
 import { useRef, useMemo, useState, useEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useAccountsStore } from '@/store/accounts'
+import { ACCOUNT_GRID_CARD_HEIGHT } from '@/store/account-management-utils'
 import { useTranslation } from '@/hooks/useTranslation'
 import { AccountCard } from './AccountCard'
 import { AccountDetailDialog } from './AccountDetailDialog'
@@ -13,7 +14,7 @@ interface AccountGridProps {
 }
 
 // 卡片高度（包含间距）- 需要足够容纳有多个奖励的 PRO 账号
-const CARD_HEIGHT = 340
+const CARD_HEIGHT = ACCOUNT_GRID_CARD_HEIGHT
 // 卡片最小宽度（小于该宽度自动减少列数）
 const MIN_CARD_WIDTH = 300
 // 卡片间距

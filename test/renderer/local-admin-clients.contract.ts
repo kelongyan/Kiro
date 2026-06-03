@@ -42,6 +42,15 @@ import {
   switchAccount,
   switchAccountCli
 } from '../../src/renderer/src/services/local-admin-kiro-local'
+import {
+  getSchedulerHealth,
+  getSchedulerRuns,
+  getSchedulerTasks,
+  pauseSchedulerTask,
+  resumeSchedulerTask,
+  runSchedulerTask
+} from '../../src/renderer/src/services/local-admin-scheduler'
+import { proxyGetDashboard } from '../../src/renderer/src/services/local-admin-proxy'
 
 async function restClientContract(): Promise<void> {
   const client = createLocalAdminClient({
@@ -71,8 +80,7 @@ function eventsClientContract(): void {
   })
 
   const unsubscribe = events.on('background-refresh-result', (event) => {
-    const typedEvent: LocalAdminServerEvent<LocalAdminEventMap['background-refresh-result']> =
-      event
+    const typedEvent: LocalAdminServerEvent<LocalAdminEventMap['background-refresh-result']> = event
     void typedEvent.payload
   })
 
@@ -194,7 +202,44 @@ async function kiroLocalClientContract(): Promise<void> {
   logout.deletedCount?.toFixed()
 }
 
+async function schedulerClientContract(): Promise<void> {
+  const health = await getSchedulerHealth()
+  health.tasks.length.toFixed()
+  health.recentRuns.length.toFixed()
+
+  const tasks = await getSchedulerTasks()
+  tasks[0]?.policy.intervalMs.toFixed()
+
+  const runs = await getSchedulerRuns('account-auto-refresh')
+  runs[0]?.success.toFixed()
+
+  const run = await runSchedulerTask('account-status-check')
+  run.status.toString()
+
+  const paused = await pauseSchedulerTask('account-status-check')
+  paused.paused.valueOf()
+
+  const resumed = await resumeSchedulerTask('account-status-check')
+  resumed.enabled.valueOf()
+}
+
+async function proxyClientContract(): Promise<void> {
+  const dashboard = await proxyGetDashboard()
+  dashboard.accounts.available.toFixed()
+  dashboard.apiKeys.restricted.toFixed()
+  dashboard.requests.successRate.toFixed()
+  dashboard.recentRequests[0]?.requestId?.toString()
+  dashboard.recentRequests[0]?.apiKeyId?.toString()
+  dashboard.recentRequests[0]?.accountId.toString()
+  dashboard.recentRequests[0]?.model.toString()
+  dashboard.recentRequests[0]?.status?.toFixed()
+  dashboard.recentRequests[0]?.cacheWriteTokens?.toFixed()
+  dashboard.recentRequests[0]?.reasoningTokens?.toFixed()
+}
+
 void restClientContract
 void eventsClientContract
 void accountsClientContract
 void kiroLocalClientContract
+void schedulerClientContract
+void proxyClientContract

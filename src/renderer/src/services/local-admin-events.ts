@@ -32,14 +32,19 @@ export interface ProxyAccountSuspendedPayload {
 }
 
 export interface ProxyRequestPayload {
+  requestId?: string
   path: string
   method: string
+  apiKeyId?: string
   accountId?: string
 }
 
 export interface ProxyResponsePayload {
+  requestId?: string
   path: string
   model?: string
+  apiKeyId?: string
+  accountId?: string
   status: number
   tokens?: number
   inputTokens?: number
@@ -108,6 +113,11 @@ export interface SocialAuthCallbackPayload {
   error?: string
 }
 
+export interface SchedulerTaskPayload {
+  task: unknown
+  run?: unknown
+}
+
 export interface LocalAdminEventMap {
   test: { message?: string }
   'background-refresh-result': BatchAccountResultPayload
@@ -126,6 +136,11 @@ export interface LocalAdminEventMap {
   'registration-log': RegistrationLogPayload
   'registration-complete': RegistrationCompletePayload
   'social-auth-callback': SocialAuthCallbackPayload
+  'scheduler-task-started': SchedulerTaskPayload
+  'scheduler-task-progress': unknown
+  'scheduler-task-completed': SchedulerTaskPayload
+  'scheduler-task-failed': SchedulerTaskPayload
+  'scheduler-task-paused': SchedulerTaskPayload
 }
 
 export type LocalAdminEventPayload<TType extends string> =

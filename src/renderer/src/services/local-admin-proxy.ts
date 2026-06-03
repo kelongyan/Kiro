@@ -1,10 +1,4 @@
-import {
-  LocalAdminClientError,
-  deleteJson,
-  getJson,
-  postJson,
-  putJson
-} from './local-admin-client'
+import { LocalAdminClientError, deleteJson, getJson, postJson, putJson } from './local-admin-client'
 
 type ApiKeyFormat = 'sk' | 'simple' | 'token'
 type ClientTarget = 'claudeCode' | 'opencode' | 'codex' | 'gemini' | 'hermes' | 'openclaw'
@@ -24,10 +18,41 @@ export interface ProxyLogEntry {
 
 export interface RecentProxyLogEntry {
   time: string
+  requestId?: string
   path: string
+  model?: string
+  apiKeyId?: string
+  accountId?: string
   status: number
   tokens?: number
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  reasoningTokens?: number
+  credits?: number
+  responseTime?: number
+  error?: string
   [key: string]: unknown
+}
+
+export interface ProxyDashboardRequestLog {
+  requestId?: string
+  timestamp: number
+  path: string
+  model: string
+  apiKeyId?: string
+  accountId: string
+  status?: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  reasoningTokens?: number
+  credits?: number
+  responseTime: number
+  success: boolean
+  error?: string
 }
 
 export interface ProxyAccountInput {
@@ -43,6 +68,7 @@ export interface ProxyAccountInput {
   authMethod?: string
   provider?: string
   machineId?: string
+  proxyUrl?: string
 }
 
 export interface ProxyModelInfo {
@@ -69,6 +95,8 @@ export interface ProxyApiKey {
   createdAt: number
   lastUsedAt?: number
   creditsLimit?: number
+  modelAllowlist?: string[]
+  accountAllowlist?: string[]
   usage: {
     totalRequests: number
     totalCredits: number
@@ -91,6 +119,48 @@ export interface ProxyApiKey {
     credits: number
     path: string
   }>
+}
+
+export interface ProxyDashboard {
+  running: boolean
+  origin: string
+  host: string
+  port: number
+  strategy: string
+  requests: {
+    total: number
+    success: number
+    failed: number
+    successRate: number
+  }
+  tokens: {
+    total: number
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+    reasoning: number
+  }
+  credits: {
+    total: number
+  }
+  accounts: {
+    total: number
+    available: number
+    unavailable: number
+    suspended: number
+    exhausted: number
+    cooldown: number
+  }
+  apiKeys: {
+    total: number
+    enabled: number
+    disabled: number
+    limited: number
+    exhausted: number
+    restricted: number
+  }
+  recentRequests: ProxyDashboardRequestLog[]
 }
 
 type HttpResult<T> = T & { ok?: boolean }
@@ -131,10 +201,7 @@ function toFailure<T extends LegacyResult>(error: unknown, fallback: string): T 
   } as T
 }
 
-async function getLegacyResult<T extends LegacyResult>(
-  path: string,
-  fallback: string
-): Promise<T> {
+async function getLegacyResult<T extends LegacyResult>(path: string, fallback: string): Promise<T> {
   try {
     return await getJson<HttpResult<T>>(path)
   } catch (error) {
@@ -200,6 +267,11 @@ export function proxyGetStatus(): Promise<{
   sessionStats?: unknown
 }> {
   return getJson('/api/proxy/status')
+}
+
+export async function proxyGetDashboard(): Promise<ProxyDashboard> {
+  const result = await getJson<{ ok?: boolean; dashboard: ProxyDashboard }>('/api/proxy/dashboard')
+  return result.dashboard
 }
 
 export function proxyUpdateConfig(
@@ -367,15 +439,28 @@ export function proxyAddApiKey(apiKey: {
   key?: string
   format?: ApiKeyFormat
   creditsLimit?: number
+  modelAllowlist?: string[]
+  accountAllowlist?: string[]
 }): Promise<{ success: boolean; apiKey?: ProxyApiKey; error?: string }> {
   return postLegacyResult('/api/proxy/api-keys', apiKey, '新增 API Key 失败')
 }
 
 export function proxyUpdateApiKey(
   id: string,
-  updates: { name?: string; key?: string; enabled?: boolean; creditsLimit?: number | null }
+  updates: {
+    name?: string
+    key?: string
+    enabled?: boolean
+    creditsLimit?: number | null
+    modelAllowlist?: string[]
+    accountAllowlist?: string[]
+  }
 ): Promise<{ success: boolean; apiKey?: ProxyApiKey; error?: string }> {
-  return putLegacyResult(`/api/proxy/api-keys/${encodePathSegment(id)}`, updates, '更新 API Key 失败')
+  return putLegacyResult(
+    `/api/proxy/api-keys/${encodePathSegment(id)}`,
+    updates,
+    '更新 API Key 失败'
+  )
 }
 
 export function proxyDeleteApiKey(id: string): Promise<LegacyResult> {
@@ -391,9 +476,7 @@ export function proxyResetApiKeyUsage(id: string): Promise<LegacyResult> {
 }
 
 export async function getUsageApiType(): Promise<'rest' | 'cbor'> {
-  const result = await getJson<{ ok?: boolean; type: 'rest' | 'cbor' }>(
-    '/api/proxy/usage-api-type'
-  )
+  const result = await getJson<{ ok?: boolean; type: 'rest' | 'cbor' }>('/api/proxy/usage-api-type')
   return result.type === 'cbor' ? 'cbor' : 'rest'
 }
 
@@ -404,9 +487,7 @@ export function setUsageApiType(
 }
 
 export async function getUseKProxyForApi(): Promise<boolean> {
-  const result = await getJson<{ ok?: boolean; enabled: boolean }>(
-    '/api/proxy/use-kproxy-for-api'
-  )
+  const result = await getJson<{ ok?: boolean; enabled: boolean }>('/api/proxy/use-kproxy-for-api')
   return result.enabled === true
 }
 

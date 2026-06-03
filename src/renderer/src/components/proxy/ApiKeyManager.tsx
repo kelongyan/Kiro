@@ -44,6 +44,8 @@ interface ApiKey {
   createdAt: number
   lastUsedAt?: number
   creditsLimit?: number
+  modelAllowlist?: string[]
+  accountAllowlist?: string[]
   usage: {
     totalRequests: number
     totalCredits: number
@@ -73,6 +75,7 @@ interface ApiKey {
 
 export function ApiKeyManager() {
   const { language } = useAccountsStore()
+  const accounts = useAccountsStore((state) => state.accounts)
   const isEn = language === 'en'
 
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
@@ -147,6 +150,20 @@ export function ApiKeyManager() {
     }
   }
 
+  const applyApiKeyUpdates = async (
+    id: string,
+    updates: {
+      creditsLimit?: number | null
+      modelAllowlist?: string[]
+      accountAllowlist?: string[]
+    }
+  ) => {
+    const result = await proxyAdmin.proxyUpdateApiKey(id, updates)
+    if (result.success && result.apiKey) {
+      setApiKeys((prev) => prev.map((key) => (key.id === id ? result.apiKey! : key)))
+    }
+  }
+
   const handleResetUsage = async (id: string) => {
     if (!confirm(isEn ? 'Reset usage statistics?' : '确定重置用量统计？')) return
 
@@ -199,6 +216,18 @@ export function ApiKeyManager() {
     return key.substring(0, 8) + '...' + key.substring(key.length - 4)
   }
 
+  const parseList = (value: string): string[] => {
+    return Array.from(
+      new Set(
+        value
+          .split(/[\n,]/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+      )
+    )
+  }
+
+  const accountOptions = Array.from(accounts.values()).filter((account) => account.email)
   const selectedKeyData = apiKeys.find((k) => k.id === selectedKey)
 
   if (loading) {
@@ -433,18 +462,9 @@ export function ApiKeyManager() {
                   value={selectedKeyData.creditsLimit || ''}
                   onChange={async (e) => {
                     const limit = e.target.value ? parseFloat(e.target.value) : null
-                    const result = await proxyAdmin.proxyUpdateApiKey(selectedKeyData.id, {
+                    await applyApiKeyUpdates(selectedKeyData.id, {
                       creditsLimit: limit && limit > 0 ? limit : null
                     })
-                    if (result.success) {
-                      setApiKeys((prev) =>
-                        prev.map((k) =>
-                          k.id === selectedKeyData.id
-                            ? { ...k, creditsLimit: limit && limit > 0 ? limit : undefined }
-                            : k
-                        )
-                      )
-                    }
                   }}
                   className="w-32 h-8"
                 />
@@ -452,6 +472,89 @@ export function ApiKeyManager() {
                   {isEn ? '(0 = unlimited)' : '(0 = 无限制)'}
                 </span>
               </div>
+
+              <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+                <div className="text-sm font-medium">{isEn ? 'Permission Scope' : '权限范围'}</div>
+                <div className="space-y-1.5">
+                  <div className="text-xs text-muted-foreground">
+                    {isEn ? 'Model allowlist' : '模型白名单'}
+                  </div>
+                  <Input
+                    key={`models-${selectedKeyData.id}-${selectedKeyData.modelAllowlist?.join('|') || 'all'}`}
+                    defaultValue={selectedKeyData.modelAllowlist?.join(', ') || ''}
+                    placeholder={
+                      isEn
+                        ? 'Empty = all models, e.g. anthropic.*, model-id'
+                        : '留空 = 全部模型，例如 anthropic.*, model-id'
+                    }
+                    onBlur={(event) =>
+                      void applyApiKeyUpdates(selectedKeyData.id, {
+                        modelAllowlist: parseList(event.currentTarget.value)
+                      })
+                    }
+                    className="h-8"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">
+                      {isEn ? 'Account allowlist' : '账号白名单'}
+                    </div>
+                    {(selectedKeyData.accountAllowlist?.length || 0) > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() =>
+                          void applyApiKeyUpdates(selectedKeyData.id, { accountAllowlist: [] })
+                        }
+                      >
+                        {isEn ? 'Allow all' : '允许全部'}
+                      </Button>
+                    )}
+                  </div>
+                  {accountOptions.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      {isEn ? 'No local accounts available' : '暂无本地账号可选'}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {accountOptions.slice(0, 8).map((account) => {
+                        const selected = selectedKeyData.accountAllowlist?.includes(account.id)
+                        return (
+                          <button
+                            key={account.id}
+                            type="button"
+                            className={cn(
+                              'rounded-md border px-2 py-1.5 text-left text-xs transition-colors',
+                              selected
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : 'hover:bg-muted/60'
+                            )}
+                            onClick={() => {
+                              const current = new Set(selectedKeyData.accountAllowlist || [])
+                              if (current.has(account.id)) current.delete(account.id)
+                              else current.add(account.id)
+                              void applyApiKeyUpdates(selectedKeyData.id, {
+                                accountAllowlist: Array.from(current)
+                              })
+                            }}
+                          >
+                            <div className="truncate font-medium">{account.email}</div>
+                            <div className="truncate text-muted-foreground">{account.id}</div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <div className="text-[11px] text-muted-foreground">
+                    {isEn
+                      ? 'Empty account scope lets this key use every synced proxy account.'
+                      : '账号范围为空时，此 Key 可使用所有已同步到反代池的账号。'}
+                  </div>
+                </div>
+              </div>
+
               <div className="text-xs text-muted-foreground space-y-1">
                 <div className="flex items-center gap-2">
                   <Clock className="h-3 w-3" />

@@ -56,6 +56,40 @@ function compactNumber(n: number): string {
   return n.toLocaleString()
 }
 
+function formatRequestTime(timestamp: number): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return '-'
+  const year = date.getFullYear()
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  const hours = date.getHours().toString().padStart(2, '0')
+  const minutes = date.getMinutes().toString().padStart(2, '0')
+  const seconds = date.getSeconds().toString().padStart(2, '0')
+  const ms = date.getMilliseconds().toString().padStart(3, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`
+}
+
+function toRecentLog(log: proxyAdmin.ProxyDashboardRequestLog) {
+  return {
+    time: formatRequestTime(log.timestamp),
+    requestId: log.requestId,
+    path: log.path,
+    model: log.model,
+    apiKeyId: log.apiKeyId,
+    accountId: log.accountId,
+    status: log.status ?? (log.success ? 200 : 500),
+    tokens: log.inputTokens + log.outputTokens,
+    inputTokens: log.inputTokens,
+    outputTokens: log.outputTokens,
+    cacheReadTokens: log.cacheReadTokens,
+    cacheWriteTokens: log.cacheWriteTokens,
+    reasoningTokens: log.reasoningTokens,
+    credits: log.credits,
+    responseTime: log.responseTime,
+    error: log.error
+  }
+}
+
 interface ProxyStats {
   totalRequests: number
   successRequests: number
@@ -115,7 +149,7 @@ interface ProxyConfig {
   enableTokenBufferReserve?: boolean
   tokenBufferReserve?: number
   autoSwitchOnQuotaExhausted?: boolean
-  accountSelectionStrategy?: 'round-robin' | 'sticky'
+  accountSelectionStrategy?: 'round-robin' | 'sticky' | 'least-used' | 'fastest-proxy'
   // 多账号轮询范围（与 main/proxy/types.ts 保持一致）
   multiAccountSelectionMode?: 'all' | 'groups'
   multiAccountGroupIds?: string[]
@@ -148,6 +182,7 @@ export function ProxyPanel() {
     clientDrivenToolExecution: true
   })
   const [stats, setStats] = useState<ProxyStats | null>(null)
+  const [dashboard, setDashboard] = useState<proxyAdmin.ProxyDashboard | null>(null)
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   const [accountCount, setAccountCount] = useState(0)
   const [availableCount, setAvailableCount] = useState(0)
@@ -156,13 +191,17 @@ export function ProxyPanel() {
   const [recentLogs, setRecentLogs] = useState<
     Array<{
       time: string
+      requestId?: string
       path: string
       model?: string
+      apiKeyId?: string
+      accountId?: string
       status: number
       tokens?: number
       inputTokens?: number
       outputTokens?: number
       cacheReadTokens?: number
+      cacheWriteTokens?: number
       reasoningTokens?: number
       credits?: number
       responseTime?: number
@@ -188,6 +227,7 @@ export function ProxyPanel() {
 
   const accounts = useAccountsStore((state) => state.accounts)
   const groups = useAccountsStore((state) => state.groups)
+  const getAccountProxyUrl = useAccountsStore((state) => state.getAccountProxyUrl)
 
   // 生成随机 API Key
   const generateApiKey = useCallback(() => {
@@ -257,6 +297,14 @@ export function ProxyPanel() {
       const accountsResult = await proxyAdmin.proxyGetAccounts()
       setAccountCount(accountsResult.accounts.length)
       setAvailableCount(accountsResult.availableCount)
+
+      const dashboardResult = await proxyAdmin.proxyGetDashboard()
+      setDashboard(dashboardResult)
+      setAccountCount(dashboardResult.accounts.total)
+      setAvailableCount(dashboardResult.accounts.available)
+      if (dashboardResult.recentRequests.length > 0) {
+        setRecentLogs(dashboardResult.recentRequests.map(toRecentLog).slice(0, 100))
+      }
     } catch (err) {
       console.error('Failed to fetch proxy status:', err)
     }
@@ -309,7 +357,8 @@ export function ProxyPanel() {
         clientSecret: acc.credentials?.clientSecret,
         region: acc.credentials?.region || 'us-east-1',
         authMethod: acc.credentials?.authMethod,
-        provider: acc.credentials?.provider || acc.idp
+        provider: acc.credentials?.provider || acc.idp,
+        proxyUrl: getAccountProxyUrl(acc.id)
       }))
 
       const result = await proxyAdmin.proxySyncAccounts(proxyAccounts)
@@ -329,7 +378,8 @@ export function ProxyPanel() {
     fetchStatus,
     config.enableMultiAccount,
     config.multiAccountSelectionMode,
-    config.multiAccountGroupIds
+    config.multiAccountGroupIds,
+    getAccountProxyUrl
   ])
 
   // 启动服务器
@@ -446,13 +496,17 @@ export function ProxyPanel() {
       setRecentLogs((prev) => [
         {
           time: fullTime,
+          requestId: info.requestId,
           path: info.path,
           model: info.model,
+          apiKeyId: info.apiKeyId,
+          accountId: info.accountId,
           status: info.status,
           tokens: info.tokens,
           inputTokens: info.inputTokens,
           outputTokens: info.outputTokens,
           cacheReadTokens: info.cacheReadTokens,
+          cacheWriteTokens: info.cacheWriteTokens,
           reasoningTokens: info.reasoningTokens,
           credits: info.credits,
           responseTime: info.responseTime,
@@ -644,6 +698,62 @@ export function ProxyPanel() {
               {isEn ? 'Configure Clients' : '一键配置'}
             </Button>
           </div>
+
+          {dashboard && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="rounded-md border bg-muted/20 px-3 py-2">
+                <div className="text-xs text-muted-foreground">
+                  {isEn ? 'Account Pool' : '账号池'}
+                </div>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className="text-lg font-semibold text-success">
+                    {dashboard.accounts.available}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    / {dashboard.accounts.total}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {isEn ? 'suspended' : '封禁'} {dashboard.accounts.suspended} ·{' '}
+                  {isEn ? 'exhausted' : '耗尽'} {dashboard.accounts.exhausted}
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/20 px-3 py-2">
+                <div className="text-xs text-muted-foreground">API Keys</div>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className="text-lg font-semibold">{dashboard.apiKeys.enabled}</span>
+                  <span className="text-xs text-muted-foreground">/ {dashboard.apiKeys.total}</span>
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {isEn ? 'restricted' : '受限'} {dashboard.apiKeys.restricted} ·{' '}
+                  {isEn ? 'limited' : '额度'} {dashboard.apiKeys.limited}
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/20 px-3 py-2">
+                <div className="text-xs text-muted-foreground">
+                  {isEn ? 'Success Rate' : '成功率'}
+                </div>
+                <div className="mt-1 text-lg font-semibold">
+                  {dashboard.requests.total > 0
+                    ? `${(dashboard.requests.successRate * 100).toFixed(1)}%`
+                    : '-'}
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {dashboard.requests.success}/{dashboard.requests.failed}/
+                  {dashboard.requests.total}
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/20 px-3 py-2">
+                <div className="text-xs text-muted-foreground">
+                  {isEn ? 'Strategy' : '选择策略'}
+                </div>
+                <div className="mt-1 text-lg font-semibold">{dashboard.strategy}</div>
+                <div className="mt-1 text-[11px] text-muted-foreground truncate">
+                  {dashboard.origin}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 错误提示 */}
           {error && (
@@ -880,38 +990,62 @@ export function ProxyPanel() {
               <div className="col-span-2 flex items-center gap-2">
                 <Label className="text-sm shrink-0">{isEn ? 'Strategy' : '选择策略'}:</Label>
                 <div className="flex gap-1 bg-muted/30 rounded-lg p-0.5">
-                  {(['round-robin', 'sticky'] as const).map((strategy) => {
-                    const active = (config.accountSelectionStrategy || 'round-robin') === strategy
-                    const labelEn = strategy === 'round-robin' ? 'Round-Robin' : 'Sticky'
-                    const labelZh = strategy === 'round-robin' ? '轮询' : '粘滞'
-                    return (
-                      <button
-                        key={strategy}
-                        type="button"
-                        disabled={isRunning}
-                        className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                          active
-                            ? 'bg-primary text-primary-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                        onClick={() => {
-                          setConfig((prev) => ({ ...prev, accountSelectionStrategy: strategy }))
-                          proxyAdmin.proxyUpdateConfig({ accountSelectionStrategy: strategy })
-                        }}
-                      >
-                        {isEn ? labelEn : labelZh}
-                      </button>
-                    )
-                  })}
+                  {(['least-used', 'round-robin', 'sticky', 'fastest-proxy'] as const).map(
+                    (strategy) => {
+                      const active = (config.accountSelectionStrategy || 'least-used') === strategy
+                      const labelEn =
+                        strategy === 'least-used'
+                          ? 'Least Used'
+                          : strategy === 'round-robin'
+                            ? 'Round-Robin'
+                            : strategy === 'sticky'
+                              ? 'Sticky'
+                              : 'Fastest Proxy'
+                      const labelZh =
+                        strategy === 'least-used'
+                          ? '最少使用'
+                          : strategy === 'round-robin'
+                            ? '轮询'
+                            : strategy === 'sticky'
+                              ? '粘滞'
+                              : '最快代理'
+                      return (
+                        <button
+                          key={strategy}
+                          type="button"
+                          disabled={isRunning}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                            active
+                              ? 'bg-primary text-primary-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          onClick={() => {
+                            setConfig((prev) => ({ ...prev, accountSelectionStrategy: strategy }))
+                            proxyAdmin.proxyUpdateConfig({ accountSelectionStrategy: strategy })
+                          }}
+                        >
+                          {isEn ? labelEn : labelZh}
+                        </button>
+                      )
+                    }
+                  )}
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  {(config.accountSelectionStrategy || 'round-robin') === 'round-robin'
+                  {(config.accountSelectionStrategy || 'least-used') === 'round-robin'
                     ? isEn
                       ? 'Each request rotates to next account (load balanced)'
                       : '每次请求轮询到下一个账号（负载均衡）'
-                    : isEn
-                      ? 'Stay on success account until failure (preserves prompt cache)'
-                      : '成功后粘住该账号直到失败（保留 prompt cache）'}
+                    : (config.accountSelectionStrategy || 'least-used') === 'least-used'
+                      ? isEn
+                        ? 'Prefer the healthy account with the fewest completed requests'
+                        : '优先选择完成请求数最少的健康账号'
+                      : (config.accountSelectionStrategy || 'least-used') === 'sticky'
+                        ? isEn
+                          ? 'Stay on success account until failure (preserves prompt cache)'
+                          : '成功后粘住该账号直到失败（保留 prompt cache）'
+                        : isEn
+                          ? 'Prefer lower observed latency when account timing data exists'
+                          : '有延迟数据时优先选择历史响应更快的账号'}
                 </span>
               </div>
             )}
@@ -1707,7 +1841,8 @@ export function ProxyPanel() {
                   key={idx}
                   className="grid gap-2 py-1 px-2 rounded hover:bg-muted/50 items-center"
                   style={{
-                    gridTemplateColumns: '2fr 1fr 1.2fr 0.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.6fr'
+                    gridTemplateColumns:
+                      '1.8fr 1fr 1.1fr 1.2fr 0.5fr 0.7fr 0.7fr 0.8fr 0.7fr 0.7fr 0.6fr'
                   }}
                 >
                   <span className="text-muted-foreground whitespace-nowrap text-left">
@@ -1715,6 +1850,13 @@ export function ProxyPanel() {
                   </span>
                   <span className="truncate text-left" title={log.path}>
                     {log.path}
+                  </span>
+                  <span
+                    className="truncate text-left text-muted-foreground"
+                    title={`${log.requestId || '-'} / ${log.apiKeyId || '-'} / ${log.accountId || '-'}`}
+                  >
+                    {(log.requestId || '-').slice(0, 8)} / {(log.apiKeyId || '-').slice(0, 8)} /{' '}
+                    {(log.accountId || '-').slice(0, 8)}
                   </span>
                   <span className="truncate text-left text-muted-foreground" title={log.model}>
                     {log.model ? log.model.replace('anthropic.', '').replace('-v1:0', '') : '-'}
@@ -1731,7 +1873,12 @@ export function ProxyPanel() {
                     {log.outputTokens ? log.outputTokens.toLocaleString() : '-'}
                   </span>
                   <span className="text-success text-right">
-                    {log.cacheReadTokens ? log.cacheReadTokens.toLocaleString() : '-'}
+                    {log.cacheReadTokens || log.cacheWriteTokens
+                      ? `${compactNumber(log.cacheReadTokens || 0)}/${compactNumber(log.cacheWriteTokens || 0)}`
+                      : '-'}
+                  </span>
+                  <span className="text-violet-500 text-right">
+                    {log.reasoningTokens ? compactNumber(log.reasoningTokens) : '-'}
                   </span>
                   <span className="text-muted-foreground text-right">
                     {log.credits ? log.credits.toFixed(4) : '-'}
