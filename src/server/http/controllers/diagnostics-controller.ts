@@ -20,6 +20,11 @@ export function createDiagnosticsRouter(deps: DiagnosticsControllerDeps): Router
   const { diagnosticsService } = deps
   const router = new Router()
 
+  router.get('/api/diagnostics/overview', async (_req, res) => {
+    const result = await diagnosticsService.overview()
+    writeJsonResponse(res, 200, { ok: true, ...result })
+  })
+
   router.post('/api/diagnostics/run', async (_req, res, ctx) => {
     const body = readObjectBody(ctx.body)
     const targets = Array.isArray(body.targets) ? body.targets : []

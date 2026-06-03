@@ -16,6 +16,7 @@ import {
   useWebhookStore,
   ALL_WEBHOOK_EVENTS,
   type WebhookEntry,
+  type WebhookHistoryEntry,
   type WebhookKind
 } from '@/store/webhooks'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -56,8 +57,16 @@ const KIND_OPTIONS: { value: WebhookKind; label: string; placeholder: string }[]
 export function WebhooksPage(): React.ReactNode {
   const { t } = useTranslation()
   const isEn = t('common.unknown') === 'Unknown'
-  const { webhooks, addWebhook, updateWebhook, removeWebhook, toggleWebhook, testWebhook } =
-    useWebhookStore()
+  const {
+    webhooks,
+    history,
+    addWebhook,
+    updateWebhook,
+    removeWebhook,
+    toggleWebhook,
+    testWebhook,
+    clearHistory
+  } = useWebhookStore()
 
   const [editing, setEditing] = useState<Partial<WebhookEntry> | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
@@ -264,6 +273,32 @@ export function WebhooksPage(): React.ReactNode {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Send className="h-4 w-4 text-primary" />
+            {isEn ? 'Recent Deliveries' : '最近触发记录'}
+          </CardTitle>
+          <Button size="sm" variant="ghost" onClick={clearHistory} disabled={history.length === 0}>
+            <Trash2 className="h-4 w-4 mr-1" />
+            {isEn ? 'Clear' : '清空'}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {history.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              {isEn ? 'No webhook deliveries yet.' : '还没有 webhook 触发记录'}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {history.slice(0, 20).map((item) => (
+                <HistoryRow key={item.id} item={item} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* 编辑对话框 */}
       {editing && (
         <Card className="border-primary/40 shadow-lg">
@@ -394,6 +429,35 @@ export function WebhooksPage(): React.ReactNode {
           </CardContent>
         </Card>
       )}
+    </div>
+  )
+}
+
+function HistoryRow({ item }: { item: WebhookHistoryEntry }): React.ReactNode {
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-lg border bg-card">
+      <div className="mt-0.5">
+        {item.success ? (
+          <CheckCircle2 className="h-4 w-4 text-green-500" />
+        ) : (
+          <XCircle className="h-4 w-4 text-red-500" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-sm">{item.title}</span>
+          <Badge variant="outline" className="text-[10px]">
+            {item.event}
+          </Badge>
+          <span className="text-[10px] text-muted-foreground">
+            {new Date(item.createdAt).toLocaleString()}
+          </span>
+        </div>
+        <div className="text-xs text-muted-foreground mt-1">
+          delivered {item.delivered} / skipped {item.skipped}
+        </div>
+        {item.error && <div className="text-[10px] text-red-500 mt-1 break-all">{item.error}</div>}
+      </div>
     </div>
   )
 }

@@ -48,6 +48,7 @@ export interface KProxyEvents {
  * 请求信息
  */
 export interface KProxyRequestInfo {
+  requestId: string
   timestamp: number
   method: string
   host: string
@@ -62,8 +63,13 @@ export interface KProxyRequestInfo {
  * 响应信息
  */
 export interface KProxyResponseInfo {
+  requestId: string
   timestamp: number
   host: string
+  method: string
+  path: string
+  isMitm: boolean
+  deviceIdReplaced: boolean
   statusCode: number
   duration: number
 }

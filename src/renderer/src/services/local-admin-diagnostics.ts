@@ -1,4 +1,4 @@
-import { LocalAdminClientError, postJson } from './local-admin-client'
+import { LocalAdminClientError, getJson, postJson } from './local-admin-client'
 
 export interface LegacyResult {
   success: boolean
@@ -48,6 +48,18 @@ export interface DiagnosticsRunResult {
     latencyMs?: number
     error?: string
   }>
+}
+
+export interface DiagnosticsOverviewCheck {
+  id: string
+  label: string
+  category: 'local' | 'proxy' | 'kiro' | 'storage' | 'webhook' | 'scheduler'
+  success: boolean
+  detail?: string
+}
+
+export interface DiagnosticsOverviewResult {
+  checks: DiagnosticsOverviewCheck[]
 }
 
 type HttpResult<T> = T & { ok?: boolean }
@@ -102,6 +114,10 @@ export function diagnoseHttpProbe(
 
 export function diagnoseRun(params: DiagnosticsRunInput): Promise<DiagnosticsRunResult> {
   return postJson('/api/diagnostics/run', params)
+}
+
+export function diagnoseOverview(): Promise<DiagnosticsOverviewResult> {
+  return getJson('/api/diagnostics/overview')
 }
 
 export function accountSetProxyBinding(

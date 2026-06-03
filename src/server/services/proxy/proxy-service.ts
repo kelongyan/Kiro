@@ -32,6 +32,7 @@ export interface ProxyServiceDeps {
   getUseKProxyForApi?: () => boolean
   setUseKProxyForApi?: (enabled: boolean) => void
   clearAccountSuspended?: (accountId: string) => void
+  getAccountProxyUrl?: (accountId: string) => string | undefined
 }
 
 export interface ProxyStatusResult {
@@ -593,7 +594,7 @@ export class ProxyService {
   addAccount(account: ProxyAccount): { success: boolean; accountCount?: number; error?: string } {
     try {
       const pool = this.ensureServer().getAccountPool()
-      pool.addAccount(account)
+      pool.addAccount(this.withBoundProxy(account))
       return { success: true, accountCount: pool.size }
     } catch (error) {
       return {
@@ -625,7 +626,7 @@ export class ProxyService {
       const pool = this.ensureServer().getAccountPool()
       pool.clear()
       for (const account of accounts) {
-        pool.addAccount(account)
+        pool.addAccount(this.withBoundProxy(account))
       }
       return { success: true, accountCount: pool.size }
     } catch (error) {
@@ -749,5 +750,13 @@ export class ProxyService {
   async shutdown(): Promise<void> {
     await this.currentServer?.stop()
     await proxyLogStore.flushSaveNow()
+  }
+
+  private withBoundProxy(account: ProxyAccount): ProxyAccount {
+    const proxyUrl = this.deps.getAccountProxyUrl?.(account.id)
+    if (proxyUrl && account.proxyUrl !== proxyUrl) {
+      return { ...account, proxyUrl }
+    }
+    return account
   }
 }

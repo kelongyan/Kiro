@@ -51,6 +51,38 @@ import {
   runSchedulerTask
 } from '../../src/renderer/src/services/local-admin-scheduler'
 import { proxyGetDashboard } from '../../src/renderer/src/services/local-admin-proxy'
+import {
+  kproxyCheckCaCertInstalled,
+  kproxyGenerateDeviceId,
+  kproxyGetDeviceMappings,
+  kproxyGetStatus,
+  kproxyGetSystemInfo,
+  kproxyInit,
+  kproxyInstallCaCert,
+  kproxyRemoveDeviceMapping,
+  kproxyResetCaCert,
+  kproxyRestart,
+  kproxySetDeviceId,
+  kproxyStart,
+  kproxyStop,
+  kproxySwitchToAccount,
+  kproxyUninstallCaCert
+} from '../../src/renderer/src/services/local-admin-kproxy'
+import {
+  proxyPoolBindAccount,
+  proxyPoolBindAccounts,
+  proxyPoolClearBindings,
+  proxyPoolDeleteProxy,
+  proxyPoolGetAccountProxyUrl,
+  proxyPoolGetSnapshot,
+  proxyPoolImport,
+  proxyPoolToggleProxy,
+  proxyPoolUnbindAccount,
+  proxyPoolUpdateConfig,
+  proxyPoolUpdateProxy,
+  proxyPoolValidateBatch,
+  proxyPoolValidateProxy
+} from '../../src/renderer/src/services/local-admin-proxy-pool'
 
 async function restClientContract(): Promise<void> {
   const client = createLocalAdminClient({
@@ -93,8 +125,16 @@ function eventsClientContract(): void {
   const unsubscribeDefault = onLocalAdminEvent('registration-log', (event) => {
     event.payload.message.toString()
   })
+  const unsubscribeKproxy = onLocalAdminEvent('kproxy-response', (event) => {
+    event.payload.requestId.toString()
+    event.payload.path.toString()
+    event.payload.statusCode.toFixed()
+    event.payload.duration.toFixed()
+    event.payload.deviceIdReplaced.valueOf()
+  })
   closeLocalAdminEvents()
   unsubscribeDefault()
+  unsubscribeKproxy()
 }
 
 async function accountsClientContract(): Promise<void> {
@@ -237,9 +277,78 @@ async function proxyClientContract(): Promise<void> {
   dashboard.recentRequests[0]?.reasoningTokens?.toFixed()
 }
 
+async function proxyPoolClientContract(): Promise<void> {
+  const snapshot = await proxyPoolGetSnapshot()
+  snapshot.counts.boundAccounts.toFixed()
+  snapshot.config.strategy.toString()
+
+  const imported = await proxyPoolImport('127.0.0.1:8080')
+  imported.added.toFixed()
+  imported.snapshot.proxies[0]?.url.toString()
+
+  const config = await proxyPoolUpdateConfig({ enabled: true, strategy: 'least_used' })
+  config.enabled.valueOf()
+
+  const proxy = await proxyPoolUpdateProxy('proxy-id', { label: 'local' })
+  proxy.label?.toString()
+
+  const toggled = await proxyPoolToggleProxy('proxy-id', true)
+  toggled.enabled.valueOf()
+
+  const validation = await proxyPoolValidateProxy('proxy-id')
+  validation.latencyMs?.toFixed()
+
+  const batch = await proxyPoolValidateBatch(['proxy-id'], 2)
+  batch.snapshot.counts.total.toFixed()
+
+  await proxyPoolBindAccount('account-id', 'proxy-id')
+  await proxyPoolBindAccounts(['account-id'], 'proxy-id')
+  const proxyUrl = await proxyPoolGetAccountProxyUrl('account-id')
+  proxyUrl?.toString()
+  await proxyPoolUnbindAccount('account-id')
+  await proxyPoolClearBindings()
+  await proxyPoolDeleteProxy('proxy-id')
+}
+
+async function kproxyClientContract(): Promise<void> {
+  const init = await kproxyInit()
+  init.caInfo?.certPath.toString()
+
+  const start = await kproxyStart({ port: 8899, deviceId: 'a'.repeat(64) })
+  start.port?.toFixed()
+
+  const status = await kproxyGetStatus()
+  status.currentDeviceId?.toString()
+  status.activeMapping?.accountId?.toString()
+
+  const systemInfo = await kproxyGetSystemInfo()
+  systemInfo.adminRecommended.valueOf()
+  systemInfo.adminHint?.toString()
+
+  const randomId = await kproxyGenerateDeviceId()
+  randomId.deviceId?.toString()
+
+  await kproxySetDeviceId('a'.repeat(64))
+  await kproxySwitchToAccount('account-id')
+
+  const mappings = await kproxyGetDeviceMappings()
+  mappings.mappings[0]?.accountId.toString()
+  await kproxyRemoveDeviceMapping('account-id')
+
+  const installed = await kproxyCheckCaCertInstalled()
+  installed.installed.valueOf()
+  await kproxyInstallCaCert()
+  await kproxyUninstallCaCert()
+  await kproxyResetCaCert()
+  await kproxyRestart()
+  await kproxyStop()
+}
+
 void restClientContract
 void eventsClientContract
 void accountsClientContract
 void kiroLocalClientContract
 void schedulerClientContract
 void proxyClientContract
+void proxyPoolClientContract
+void kproxyClientContract

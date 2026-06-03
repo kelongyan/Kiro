@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   Stethoscope,
   CheckCircle2,
@@ -16,7 +16,11 @@ import { useTranslation } from '@/hooks/useTranslation'
 import { useAccountsStore } from '@/store/accounts'
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge, Label, Input } from '../ui'
 import { cn } from '@/lib/utils'
-import { diagnoseRun as runDiagnosticsViaHttp } from '@/services/local-admin-diagnostics'
+import {
+  diagnoseOverview,
+  diagnoseRun as runDiagnosticsViaHttp,
+  type DiagnosticsOverviewCheck
+} from '@/services/local-admin-diagnostics'
 
 interface DiagnoseTarget {
   id: string
@@ -142,6 +146,7 @@ export function DiagnosePage(): React.ReactNode {
   const [isRunning, setIsRunning] = useState(false)
   const [results, setResults] = useState<Record<string, DiagnoseResult>>({})
   const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 })
+  const [overviewChecks, setOverviewChecks] = useState<DiagnosticsOverviewCheck[]>([])
 
   const availableProxies = Array.from(proxyPool.values()).filter(
     (p) => p.enabled && p.status !== 'dead'
@@ -165,6 +170,12 @@ export function DiagnosePage(): React.ReactNode {
     }
     return list
   }, [customProbeUrl, isEn])
+
+  useEffect(() => {
+    void diagnoseOverview()
+      .then((result) => setOverviewChecks(result.checks))
+      .catch(() => setOverviewChecks([]))
+  }, [])
 
   const runDiagnose = useCallback(async (): Promise<void> => {
     const targets = buildTargets()
@@ -263,6 +274,45 @@ export function DiagnosePage(): React.ReactNode {
           </div>
         </div>
       </div>
+
+      {overviewChecks.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Activity className="h-4 w-4 text-primary" />
+              {isEn ? 'Local Services Overview' : '本地服务总览'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {overviewChecks.map((check) => (
+              <div
+                key={check.id}
+                className={cn(
+                  'rounded-lg border p-3',
+                  check.success
+                    ? 'border-green-200 bg-green-50/40 dark:border-green-900/50 dark:bg-green-950/10'
+                    : 'border-red-200 bg-red-50/40 dark:border-red-900/50 dark:bg-red-950/10'
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{check.label}</span>
+                  <Badge variant="outline" className="text-[10px]">
+                    {check.category}
+                  </Badge>
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  {check.success ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5 text-red-600" />
+                  )}
+                  <span className="text-muted-foreground">{check.detail || '-'}</span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 配置 */}
       <Card>

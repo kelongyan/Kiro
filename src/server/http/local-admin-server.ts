@@ -56,7 +56,7 @@ function setCorsHeaders(req: IncomingMessage, res: ServerResponse): void {
   if (typeof origin === 'string' && isAllowedOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type')
 }
 

@@ -80,6 +80,24 @@ function readTokenFromLocation(): string | null {
   return token || null
 }
 
+function scrubTokenFromLocation(): void {
+  if (typeof window === 'undefined' || !window.history?.replaceState) return
+  const location = getBrowserLocation()
+  if (!location) return
+
+  try {
+    const base =
+      location.origin && location.origin !== 'null' ? location.origin : DEFAULT_LOCAL_ADMIN_BASE_URL
+    const url = new URL(`${base}${location.pathname}${location.search}${location.hash}`)
+    if (!url.searchParams.has('token')) return
+    url.searchParams.delete('token')
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`
+    window.history.replaceState(window.history.state, '', nextUrl || '/')
+  } catch {
+    // Ignore URL rewrite failures and continue using the token from sessionStorage.
+  }
+}
+
 function normalizeBaseUrl(baseUrl?: string | URL): URL {
   const rawBaseUrl = baseUrl ? baseUrl.toString() : getConfiguredBaseUrl()
   return new URL(rawBaseUrl)
@@ -129,7 +147,11 @@ export function setLocalAdminAccessToken(token: string | null): void {
 export function getLocalAdminAccessToken(): string | null {
   const tokenFromUrl = readTokenFromLocation()
   if (tokenFromUrl) {
-    setLocalAdminAccessToken(tokenFromUrl)
+    const storage = getSessionStorage()
+    if (storage) {
+      storage.setItem(ACCESS_TOKEN_STORAGE_KEY, tokenFromUrl)
+      scrubTokenFromLocation()
+    }
     return tokenFromUrl
   }
 
@@ -171,22 +193,17 @@ export async function requestJson<TResponse = unknown>(
   }
 
   if (isObject(body) && body.ok === false) {
-    throw new LocalAdminClientError(
-      getResponseErrorMessage(body, 'Local admin request failed'),
-      {
-        status: response.status,
-        path: url.pathname,
-        body
-      }
-    )
+    throw new LocalAdminClientError(getResponseErrorMessage(body, 'Local admin request failed'), {
+      status: response.status,
+      path: url.pathname,
+      body
+    })
   }
 
   return body as TResponse
 }
 
-export function createLocalAdminClient(
-  options: LocalAdminClientOptions = {}
-): LocalAdminClient {
+export function createLocalAdminClient(options: LocalAdminClientOptions = {}): LocalAdminClient {
   return {
     getJson<TResponse = unknown>(path: string): Promise<TResponse> {
       return requestJson<TResponse>(path, {
@@ -223,17 +240,11 @@ export function getJson<TResponse = unknown>(path: string): Promise<TResponse> {
   return defaultClient.getJson<TResponse>(path)
 }
 
-export function postJson<TResponse = unknown>(
-  path: string,
-  body?: unknown
-): Promise<TResponse> {
+export function postJson<TResponse = unknown>(path: string, body?: unknown): Promise<TResponse> {
   return defaultClient.postJson<TResponse>(path, body)
 }
 
-export function putJson<TResponse = unknown>(
-  path: string,
-  body?: unknown
-): Promise<TResponse> {
+export function putJson<TResponse = unknown>(path: string, body?: unknown): Promise<TResponse> {
   return defaultClient.putJson<TResponse>(path, body)
 }
 

@@ -166,13 +166,15 @@ export interface CheckAccountStatusDeps {
     machineId?: string,
     accountMachineId?: string,
     region?: string,
-    email?: string
+    email?: string,
+    proxyUrl?: string
   ) => Promise<Record<string, unknown>>
   getUserInfo: (
     accessToken: string,
     idp: string,
     machineId?: string,
-    email?: string
+    email?: string,
+    proxyUrl?: string
   ) => Promise<Record<string, unknown>>
 }
 
@@ -329,10 +331,17 @@ async function getUserInfoOrUndefined(
   accessToken: string,
   idp: string,
   machineId: string | undefined,
-  email?: string
+  email?: string,
+  proxyUrl?: string
 ): Promise<UserInfoResponse | undefined> {
   try {
-    return (await deps.getUserInfo(accessToken, idp, machineId, email)) as UserInfoResponse
+    return (await deps.getUserInfo(
+      accessToken,
+      idp,
+      machineId,
+      email,
+      proxyUrl
+    )) as UserInfoResponse
   } catch (error) {
     const message = error instanceof Error ? error.message : ''
     if (message.includes('423') || message.includes('AccountSuspended')) {
@@ -362,8 +371,23 @@ export async function checkAccountStatus(
   try {
     try {
       const [userInfoResult, usageResult] = await Promise.all([
-        getUserInfoOrUndefined(deps, accessToken, idp, accountMachineId, account.email),
-        deps.getUsageAndLimits(accessToken, idp, undefined, accountMachineId, region, account.email)
+        getUserInfoOrUndefined(
+          deps,
+          accessToken,
+          idp,
+          accountMachineId,
+          account.email,
+          boundProxyUrl
+        ),
+        deps.getUsageAndLimits(
+          accessToken,
+          idp,
+          undefined,
+          accountMachineId,
+          region,
+          account.email,
+          boundProxyUrl
+        )
       ])
       return parseUsageResponse(account, usageResult as UsageResponse, undefined, userInfoResult)
     } catch (apiError) {
@@ -399,13 +423,22 @@ export async function checkAccountStatus(
           console.log(`[AccountStatus] Token refreshed, retrying API call [${email}]`)
 
           const [userInfoResult, usageResult] = await Promise.all([
-            getUserInfoOrUndefined(deps, refreshResult.accessToken, idp, accountMachineId),
+            getUserInfoOrUndefined(
+              deps,
+              refreshResult.accessToken,
+              idp,
+              accountMachineId,
+              account.email,
+              boundProxyUrl
+            ),
             deps.getUsageAndLimits(
               refreshResult.accessToken,
               idp,
               undefined,
               accountMachineId,
-              region
+              region,
+              account.email,
+              boundProxyUrl
             )
           ])
 

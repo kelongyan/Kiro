@@ -423,6 +423,8 @@
 
 ## 8. Phase 4: 代理池系统增强
 
+**状态：已完成（2026-06-03）**
+
 **目标：** 代理池成为账号、注册、反代统一可用的基础能力。
 
 **主要文件：**
@@ -434,52 +436,75 @@
 - Modify: `src/server/http/controllers/diagnostics-controller.ts`
 - Modify: `src/server/services/proxy/proxy-service.ts`
 - Modify: `src/core/proxy/proxyServer.ts`
-- Later Create: `src/server/services/proxy-pool/proxy-pool-service.ts`
-- Later Create: `src/server/http/controllers/proxy-pool-controller.ts`
+- Create: `src/server/services/proxy-pool/proxy-pool-service.ts`
+- Create: `src/server/http/controllers/proxy-pool-controller.ts`
+- Create: `src/renderer/src/services/local-admin-proxy-pool.ts`
+- Create: `test/server/proxy-pool.contract.ts`
+- Create: `test/server/registration-proxy-pool.contract.ts`
 
 **任务清单：**
 
-- [ ] 短期复用前端 store 的代理池能力，先补齐 UI 和行为：
+- [x] 短期复用前端 store 的代理池能力，先补齐 UI 和行为：
   - 导入。
   - 去重。
   - 启用/停用。
   - 批量删除。
   - 批量验活。
   - 自动停用 dead 代理。
-- [ ] 支持常见代理格式：
+- [x] 支持常见代理格式：
   - `host:port`
   - `host:port:user:pass`
   - `user:pass@host:port`
   - `http://user:pass@host:port`
   - `socks5://host:port`
-- [ ] 代理调度策略：
+- [x] 代理调度策略：
   - random。
   - round-robin。
   - least-used。
   - fastest。
-- [ ] 账号代理绑定：
+- [x] 账号代理绑定：
   - 单账号绑定代理。
   - 批量账号绑定代理。
   - 自动均分账号到代理。
   - 解绑后回退全局代理。
-- [ ] 反代请求使用账号绑定代理出站。
-- [ ] 注册任务可从代理池选取代理。
-- [ ] 阶段后半将代理池迁移到后端 service：
+- [x] 反代请求使用账号绑定代理出站。
+- [x] 注册任务可从代理池选取代理。
+- [x] 阶段后半将代理池迁移到后端 service：
   - 配置、状态、验活历史由 server 管理。
   - 前端通过 REST/SSE 展示状态。
 
+**当前进展：**
+
+- 新增后端 `ProxyPoolService`，读取并维护既有 `AccountData.proxyPool`、`proxyPoolConfig`、`proxyPoolCursor`、`accountProxyBindings`，避免破坏原前端 store 数据结构。
+- 新增 `/api/proxy-pool` REST API，覆盖快照、导入、配置、启停/删除、单个/批量验活、单账号/批量绑定、解绑、账号代理 URL 查询。
+- 注册服务已接入后端代理池：未显式传入 `config.proxy` 时，自动按代理池策略选择代理；注册成功/失败会回写代理使用结果。
+- `AccountService`、后台刷新/检查、反代 token refresh 已接入账号绑定代理 URL；`ProxyService` 同步/新增反代账号时也会用后端绑定补齐 `ProxyAccount.proxyUrl`。
+- 新增 renderer REST 客户端 `local-admin-proxy-pool.ts`，后续 UI 可以逐步从前端 store 迁移到后端代理池 API。
+
+**验证记录：**
+
+- [x] `npm run test:proxy-pool`
+- [x] `npm run test:registration-proxy-pool`
+- [x] Renderer local admin client contract（含 `local-admin-proxy-pool`）
+- [x] `npm run typecheck`
+- [x] `npm run lint`
+- [x] `npm run serve:smoke`
+- [x] `npm run build`
+
 **验收标准：**
 
-- [ ] 批量导入代理可去重。
-- [ ] 批量验活有并发控制。
-- [ ] dead 代理自动停用。
-- [ ] 账号详情能看到绑定代理。
-- [ ] 注册任务能按代理池策略选择代理。
-- [ ] 反代请求能按账号绑定代理出站。
+- [x] 批量导入代理可去重。
+- [x] 批量验活有并发控制。
+- [x] dead 代理自动停用。
+- [x] 账号详情能看到绑定代理。
+- [x] 注册任务能按代理池策略选择代理。
+- [x] 反代请求能按账号绑定代理出站。
 
 ---
 
 ## 9. Phase 5: K-Proxy 高级能力
+
+**状态：已完成（2026-06-03）**
 
 **目标：** 将 K-Proxy/MITM/device id 管理做成高级功能页，不阻塞主账号和反代主线。
 
@@ -489,45 +514,67 @@
 - Modify: `src/server/services/kproxy/kproxy-service.ts`
 - Modify: `src/server/http/controllers/kproxy-controller.ts`
 - Modify: `src/renderer/src/services/local-admin-kproxy.ts`
+- Modify: `src/renderer/src/services/local-admin-events.ts`
+- Modify: `src/renderer/src/store/accounts.ts`
 - Modify: `src/renderer/src/components/kproxy/KProxyPanel.tsx`
 - Modify: `src/renderer/src/components/pages/KProxyPage.tsx`
+- Create: `test/server/kproxy-management.contract.ts`
 
 **任务清单：**
 
-- [ ] CA 证书状态可视化：
+- [x] CA 证书状态可视化：
   - 是否生成。
   - 是否安装。
   - 证书路径。
   - 过期时间。
-- [ ] 危险操作确认：
+- [x] 危险操作确认：
   - 安装 CA。
   - 卸载 CA。
   - 重置 CA。
   - 修改 device id。
-- [ ] MITM 日志展示：
+- [x] MITM 日志展示：
   - request host。
   - path。
   - 是否替换 device id。
   - response status。
   - duration。
-- [ ] device id 映射：
+- [x] device id 映射：
   - 账号 -> device id。
   - 当前激活账号。
   - 切号自动切 device id。
-- [ ] 管理员权限状态提示：
+- [x] 管理员权限状态提示：
   - Windows 下安装证书需要管理员权限时，给出明确提示。
+
+**当前进展：**
+
+- K-Proxy 后端新增 `restart`、`system-info`、`ca-cert/reset`、`device-mappings/:accountId DELETE`，状态接口补充 `currentDeviceId` 与 `activeMapping`。
+- core K-Proxy 新增 CA 证书重置能力，MITM `response` 事件补充 `requestId`、`method`、`path`、`statusCode`、`duration`、`deviceIdReplaced`，可直接用于 UI 排障。
+- `KProxyPanel` 重构为完整控制台：启动/停止/重启、CA 安装状态和路径、危险操作确认、device ID 草稿应用、账号映射列表、MITM 日志表。
+- 账号 store 的 `setActiveAccount()` 已接入 `kproxySwitchToAccount()`，切换激活账号时会自动尝试切换对应 device mapping。
+- Windows / macOS / Linux 的证书安装提示在 `system-info` 中统一返回，失败提示会补充权限/策略说明，不再只丢原始报错。
+
+**验证记录：**
+
+- [x] `npm run test:kproxy-management`
+- [x] Renderer local admin client contract（含 K-Proxy 新接口）
+- [x] `npm run typecheck`
+- [x] `npm run lint`
+- [x] `npm run serve:smoke`
+- [x] `npm run build`
 
 **验收标准：**
 
-- [ ] K-Proxy 启动、停止、重启状态准确。
-- [ ] CA 安装状态可见。
-- [ ] MITM 日志可用于排查请求是否被替换。
-- [ ] 账号切换和 device id 映射一致。
-- [ ] 失败原因不吞掉，UI 可见。
+- [x] K-Proxy 启动、停止、重启状态准确。
+- [x] CA 安装状态可见。
+- [x] MITM 日志可用于排查请求是否被替换。
+- [x] 账号切换和 device id 映射一致。
+- [x] 失败原因不吞掉，UI 可见。
 
 ---
 
 ## 10. Phase 6: 注册、订阅、Webhook、诊断、配置同步
+
+**状态：已完成（2026-06-03）**
 
 **目标：** 将现有周边功能纳入统一任务、事件、配置体系。
 
@@ -540,55 +587,86 @@
 - Modify: `src/server/services/diagnostics/diagnostics-service.ts`
 - Modify: `src/server/services/config-sync/config-sync-service.ts`
 - Modify: `src/renderer/src/components/pages/RegisterPage.tsx`
+- Modify: `src/renderer/src/components/pages/TasksPage.tsx`
 - Modify: `src/renderer/src/components/pages/SubscriptionPage.tsx`
 - Modify: `src/renderer/src/components/pages/WebhooksPage.tsx`
 - Modify: `src/renderer/src/components/pages/DiagnosePage.tsx`
 - Modify: `src/renderer/src/components/pages/ConfigSyncPage.tsx`
+- Modify: `src/renderer/src/store/tasks.ts`
+- Modify: `src/renderer/src/store/webhooks.ts`
+- Create: `src/renderer/src/components/pages/task-center-utils.ts`
+- Create: `test/renderer/task-center.contract.ts`
+- Create: `test/renderer/webhook-history.contract.ts`
+- Create: `test/server/diagnostics-overview.contract.ts`
 
 **任务清单：**
 
-- [ ] 注册任务接入 scheduler：
+- [x] 注册任务接入 scheduler：
   - 并发。
   - 暂停。
   - 取消。
   - 失败退避。
   - 代理池选择。
-- [ ] 注册结果进入账号导入流程：
+- [x] 注册结果进入账号导入流程：
   - 成功账号可一键加入账号库。
   - 失败账号保留失败原因。
-- [ ] 订阅页面补齐批量入口和结果记录。
-- [ ] Webhook 事件统一：
+- [x] 订阅页面补齐批量入口和结果记录。
+- [x] Webhook 事件统一：
   - token expired。
   - account banned。
   - usage warning。
   - proxy failed。
   - all accounts exhausted。
   - registration completed。
-- [ ] 诊断页面成为总检查入口：
+- [x] 诊断页面成为总检查入口：
   - 本地服务。
   - Kiro API。
   - 代理池。
   - 反代服务。
   - K-Proxy。
   - 数据目录和加密存储。
-- [ ] 配置同步明确区分：
+- [x] 配置同步明确区分：
   - 非敏感配置。
   - 代理池。
   - Webhook。
   - 注册模板。
   - 敏感账号凭证。
 
+**当前进展：**
+
+- 注册页的批量流程已接入任务中心 `useTaskStore`，支持并发、暂停、继续、取消、失败重试和代理池选择，任务中心页会同时展示本地批量任务和后端 scheduler 任务。
+- 订阅页已补齐批量加载计划、批量获取升级链接、链接有效性检测、批量打开门户、批量关闭超额，以及结果列表清理和多选操作。
+- Webhook 页已补齐最近触发记录和测试结果展示；`register-success`、`register-failed`、`token-expired`、`account-banned`、`risk-warning`、`batch-completed` 等事件均可进入统一通知流。
+- 诊断页新增本地服务总览卡片，统一暴露 local admin、proxy service、proxy pool、K-Proxy、webhook、scheduler、config sync 的分类诊断信息。
+- 配置同步页已明确把账号凭证排除在默认导出之外，支持代理池、Webhook、注册模板、注册偏好、应用偏好的导出/导入，并可选代理密码脱敏和 AES-GCM 加密导出。
+
+**验证记录：**
+
+- [x] `npm run test:task-center`
+- [x] `npm run test:webhook-history`
+- [x] `npm run test:diagnostics-overview`
+- [x] `npm run test:proxy-pool`
+- [x] `npm run test:registration-proxy-pool`
+- [x] `npm run test:kproxy-management`
+- [x] Renderer local admin client contract
+- [x] `npm run typecheck`
+- [x] `npm run lint`
+- [x] `npm run serve:smoke`
+- [x] `npm run build`
+
 **验收标准：**
 
-- [ ] 注册任务可在任务中心看到进度。
-- [ ] 订阅入口和结果记录可追踪。
-- [ ] Webhook 可测试且最近触发记录可见。
-- [ ] 诊断页面能定位常见错误类别。
-- [ ] 配置导出默认不包含敏感 token，除非用户明确选择。
+- [x] 注册任务可在任务中心看到进度。
+- [x] 订阅入口和结果记录可追踪。
+- [x] Webhook 可测试且最近触发记录可见。
+- [x] 诊断页面能定位常见错误类别。
+- [x] 配置导出默认不包含敏感 token，除非用户明确选择。
 
 ---
 
 ## 11. Phase 7: 安全、测试和发布收口
+
+**状态：已完成（2026-06-03）**
 
 **目标：** 将系统从可用打磨到稳定、可验证、可维护。
 
@@ -598,54 +676,79 @@
 - Modify: `src/renderer/src/services/local-admin-client.ts`
 - Modify: `src/server/storage/crypto-store.ts`
 - Modify: `src/server/storage/account-store.ts`
+- Modify: `src/server/standalone.ts`
+- Modify: `src/server/services/accounts/token-refresh.ts`
 - Modify: `eslint.config.mjs`
 - Modify: `package.json`
-- Create: `test/server/*.test.ts`
-- Create: `test/core/*.test.ts`
-- Create: `test/renderer/*.contract.ts`
+- Create: `src/server/logging/redact.ts`
+- Create: `test/server/local-admin-auth.contract.ts`
+- Create: `test/server/account-store.contract.ts`
+- Create: `test/server/log-redaction.contract.ts`
+- Create: `test/renderer/local-admin-token.contract.ts`
 
 **任务清单：**
 
-- [ ] local admin token 安全：
+- [x] local admin token 安全：
   - 默认随机。
   - 支持 `KIRO_ADMIN_TOKEN` 固定。
   - 前端存入 `sessionStorage`。
   - 尽量减少 token 长期暴露在 URL。
-- [ ] 日志脱敏：
+- [x] 日志脱敏：
   - access token。
   - refresh token。
   - client secret。
   - API key。
   - bearer token。
-- [ ] 数据目录和加密 key 行为明确：
+- [x] 数据目录和加密 key 行为明确：
   - 默认 `%APPDATA%\kiro-account-manager`。
   - 支持 `KIRO_ADMIN_DATA_DIR`。
   - 支持 `KIRO_ADMIN_ENCRYPTION_KEY`。
-- [ ] 建立轻量测试：
+- [x] 建立轻量测试：
   - local admin 鉴权。
   - static files fallback。
   - account store 加密读写。
   - proxy URL 解析。
   - proxy pool 去重和调度。
   - scheduler 并发和退避。
-- [ ] 建立最终验证顺序：
+- [x] 建立最终验证顺序：
   - `npm run typecheck`
   - `npm run lint`
   - `npm run serve:smoke`
   - `npm run build`
-- [ ] 发布前检查：
+- [x] 发布前检查：
   - `git status --short`
   - `git diff --stat`
   - 敏感文件未进入 Git。
   - `.env`、`kiro_token.json`、运行数据未提交。
 
+**当前进展：**
+
+- `local-admin-client` 读取 `?token=` 后会在可用时立即写入 `sessionStorage`，随后用 `history.replaceState()` 从地址栏移除 token，只保留其它查询参数与 hash。
+- 新增 `src/server/logging/redact.ts`，统一提供 `maskSecret()`、`redactSensitiveText()`、`redactValueForLog()`；`standalone` 启动日志和 token 刷新错误日志已接入脱敏输出。
+- `standalone` 启动日志不再裸打印完整 `adminUrl`/`accessToken`，启动台输出默认脱敏。
+- 新增第 7 阶段收口测试：local admin 鉴权、static files fallback、account store 加密读写、URL token 清理、日志脱敏；Phase 4/5/6 已有 proxy pool、scheduler、diagnostics overview 等合同继续作为回归门禁保留。
+
+**验证记录：**
+
+- [x] `npm run test:local-admin-auth`
+- [x] `npm run test:static-files`
+- [x] `npm run test:account-store`
+- [x] `npm run test:local-admin-token`
+- [x] `npm run test:log-redaction`
+- [x] `npm run test:proxy-pool`
+- [x] `npm run test:scheduler`
+- [x] `npm run typecheck`
+- [x] `npm run lint`
+- [x] `npm run serve:smoke`
+- [x] `npm run build`
+
 **验收标准：**
 
-- [ ] 主流程有稳定验证命令。
-- [ ] 敏感数据默认脱敏。
-- [ ] 构建产物可由本地服务托管。
-- [ ] smoke 能覆盖核心健康端点。
-- [ ] 文档、脚本、实际行为一致。
+- [x] 主流程有稳定验证命令。
+- [x] 敏感数据默认脱敏。
+- [x] 构建产物可由本地服务托管。
+- [x] smoke 能覆盖核心健康端点。
+- [x] 文档、脚本、实际行为一致。
 
 ---
 

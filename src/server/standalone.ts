@@ -22,6 +22,7 @@ import { createSubscriptionRouter } from './http/controllers/subscription-contro
 import { createWebhookRouter } from './http/controllers/webhook-controller'
 import { createConfigSyncRouter } from './http/controllers/config-sync-controller'
 import { createSchedulerRouter } from './http/controllers/scheduler-controller'
+import { createProxyPoolRouter } from './http/controllers/proxy-pool-controller'
 import {
   createLocalAdminServer,
   type LocalAdminServer,
@@ -40,7 +41,9 @@ import { SubscriptionService } from './services/subscriptions/subscription-servi
 import { WebhookService } from './services/webhooks/webhook-service'
 import { ConfigSyncService } from './services/config-sync/config-sync-service'
 import { SchedulerService } from './services/scheduler/scheduler-service'
+import { ProxyPoolService } from './services/proxy-pool/proxy-pool-service'
 import { ConfigStore } from './storage/config-store'
+import { maskSecret, redactSensitiveText } from './logging/redact'
 import { ProxyServer, type ProxyAccount, type ProxyConfig } from '../core/proxy'
 import { safeCreateProxyAgent } from '../core/proxy/systemProxy'
 
@@ -68,6 +71,7 @@ interface StandaloneRuntime {
   webhookService: WebhookService
   configSyncService: ConfigSyncService
   schedulerService: SchedulerService
+  proxyPoolService: ProxyPoolService
   server: LocalAdminServer
   info: LocalAdminServerInfo
   staticDir?: string
@@ -147,11 +151,14 @@ export async function startStandaloneServer(
   const dataDir = options.dataDir || getDataDir()
   const staticDir =
     options.staticDir ?? (existsSync(DEFAULT_STATIC_DIR) ? DEFAULT_STATIC_DIR : undefined)
-  const fetchOpts = {}
+  const fetchOpts = { createProxyAgent: (url: string | undefined) => safeCreateProxyAgent(url) }
+  const withBoundProxy = (proxyUrl?: string) =>
+    proxyUrl ? { ...fetchOpts, overrideProxyUrl: proxyUrl } : fetchOpts
   const configStore = new ConfigStore({
     dataDir,
     encryptionKey: options.encryptionKey || DEFAULT_ENCRYPTION_KEY
   })
+  let proxyPoolService: ProxyPoolService | null = null
 
   const accountService = new AccountService({
     dataDir,
@@ -159,12 +166,14 @@ export async function startStandaloneServer(
     emitEvent: (type, payload): void => {
       publishEvent(type, payload)
     },
-    checkAccount: (accessToken, idp, machineId, region, email) =>
-      checkKiroAccount(accessToken, idp, machineId, region, email, fetchOpts),
-    getUsageAndLimits: (accessToken, idp, machineId, _accountMachineId, region, email) =>
-      getUsageAndLimits(accessToken, idp, machineId, region, email, fetchOpts),
-    getUserInfo: (accessToken, idp, machineId, email) =>
-      getUserInfo(accessToken, idp, machineId, email, fetchOpts)
+    createProxyAgent: (url) => safeCreateProxyAgent(url),
+    getAccountProxyUrl: (accountId) => proxyPoolService?.getAccountProxyUrl(accountId),
+    checkAccount: (accessToken, idp, machineId, region, email, proxyUrl) =>
+      checkKiroAccount(accessToken, idp, machineId, region, email, withBoundProxy(proxyUrl)),
+    getUsageAndLimits: (accessToken, idp, machineId, _accountMachineId, region, email, proxyUrl) =>
+      getUsageAndLimits(accessToken, idp, machineId, region, email, withBoundProxy(proxyUrl)),
+    getUserInfo: (accessToken, idp, machineId, email, proxyUrl) =>
+      getUserInfo(accessToken, idp, machineId, email, withBoundProxy(proxyUrl))
   })
   await accountService.initialize()
 
@@ -180,12 +189,6 @@ export async function startStandaloneServer(
     tokenRefreshDeps: { fetchOpts }
   })
 
-  const registrationService = new RegistrationService({
-    emitEvent: (type, payload): void => {
-      publishEvent(type, payload)
-    }
-  })
-
   const machineIdService = new MachineIdService()
   const kiroSettingsService = new KiroSettingsService({
     openPath: openLocalPath,
@@ -198,7 +201,86 @@ export async function startStandaloneServer(
     }
   })
   const diagnosticsService = new DiagnosticsService({
-    createProxyAgent: (url) => safeCreateProxyAgent(url)
+    createProxyAgent: (url) => safeCreateProxyAgent(url),
+    getOverview: async () => {
+      const proxyStatus = proxyService.getStatus()
+      const proxyPoolSnapshot = proxyPoolService?.getSnapshot()
+      const kproxyStatus = kproxyService.getStatus()
+      const webhookHealth = webhookService.health()
+      const configSyncHealth = configSyncService.health()
+      const schedulerHealth = schedulerService.health()
+      return {
+        checks: [
+          {
+            id: 'local-admin',
+            label: 'Local Admin',
+            category: 'local',
+            success: true,
+            detail: info?.baseUrl || 'running'
+          },
+          {
+            id: 'proxy',
+            label: 'Proxy Service',
+            category: 'proxy',
+            success: proxyStatus.config !== null,
+            detail: proxyStatus.running ? 'running' : 'stopped'
+          },
+          {
+            id: 'proxy-pool',
+            label: 'Proxy Pool',
+            category: 'proxy',
+            success: Boolean(proxyPoolSnapshot),
+            detail: proxyPoolSnapshot
+              ? `${proxyPoolSnapshot.counts.enabled}/${proxyPoolSnapshot.counts.total} enabled`
+              : 'not ready'
+          },
+          {
+            id: 'kproxy',
+            label: 'K-Proxy',
+            category: 'proxy',
+            success: kproxyStatus.config !== null,
+            detail: kproxyStatus.running ? 'running' : 'stopped'
+          },
+          {
+            id: 'webhooks',
+            label: 'Webhooks',
+            category: 'webhook',
+            success: webhookHealth.success,
+            detail: `${webhookHealth.count} configured`
+          },
+          {
+            id: 'scheduler',
+            label: 'Scheduler',
+            category: 'scheduler',
+            success: schedulerHealth.ok === true,
+            detail: `${schedulerHealth.tasks.length} tasks`
+          },
+          {
+            id: 'config-sync',
+            label: 'Config Sync',
+            category: 'storage',
+            success: configSyncHealth.success,
+            detail: dataDir
+          }
+        ]
+      }
+    }
+  })
+  proxyPoolService = new ProxyPoolService({
+    accountService,
+    validateProxy: (input) => diagnosticsService.validateProxy(input),
+    emitEvent: (type, payload): void => {
+      publishEvent(type, payload)
+    }
+  })
+  const registrationService = new RegistrationService({
+    emitEvent: (type, payload): void => {
+      publishEvent(type, payload)
+    },
+    pickProxyForRegistration: () => proxyPoolService?.pickNextProxy('registration') || null,
+    reportProxyResult: (proxyId, success, boundEmail, error) => {
+      proxyPoolService?.reportProxyResult(proxyId, success, boundEmail, error)
+    }
   })
   const subscriptionService = new SubscriptionService({
     openSubscriptionUrl: openExternalUrl
@@ -226,6 +308,7 @@ export async function startStandaloneServer(
     emitEvent: (type, payload): void => {
       publishEvent(type, payload)
     },
+    getAccountProxyUrl: (accountId) => proxyPoolService?.getAccountProxyUrl(accountId),
     createServer: () => {
       const savedConfig = (configStore.get('proxyConfig') as Partial<ProxyConfig> | undefined) || {}
       const proxyServer = new ProxyServer(savedConfig, {
@@ -319,6 +402,7 @@ export async function startStandaloneServer(
       createKiroSettingsRouter({ kiroSettingsService }),
       createKProxyRouter({ kproxyService }),
       createDiagnosticsRouter({ diagnosticsService }),
+      createProxyPoolRouter({ proxyPoolService }),
       createSubscriptionRouter({ subscriptionService }),
       createWebhookRouter({ webhookService }),
       createConfigSyncRouter({ configSyncService }),
@@ -342,6 +426,7 @@ export async function startStandaloneServer(
     webhookService,
     configSyncService,
     schedulerService,
+    proxyPoolService,
     server,
     info,
     staticDir,
@@ -417,6 +502,28 @@ async function runSmoke(runtime: StandaloneRuntime): Promise<void> {
     typeof proxyDashboardBody.dashboard?.apiKeys?.total !== 'number'
   ) {
     throw new Error('Proxy dashboard check failed: invalid body')
+  }
+
+  const proxyPoolResponse = await fetch(`${runtime.info.baseUrl}/api/proxy-pool`, {
+    headers: {
+      Authorization: `Bearer ${runtime.info.accessToken}`
+    }
+  })
+  if (!proxyPoolResponse.ok) {
+    throw new Error(`Proxy pool check failed: HTTP ${proxyPoolResponse.status}`)
+  }
+  const proxyPoolBody = (await proxyPoolResponse.json()) as {
+    ok?: boolean
+    proxies?: unknown[]
+    counts?: { total?: number; boundAccounts?: number }
+  }
+  if (
+    proxyPoolBody.ok !== true ||
+    !Array.isArray(proxyPoolBody.proxies) ||
+    typeof proxyPoolBody.counts?.total !== 'number' ||
+    typeof proxyPoolBody.counts?.boundAccounts !== 'number'
+  ) {
+    throw new Error('Proxy pool check failed: invalid body')
   }
 
   const schedulerHealthResponse = await fetch(`${runtime.info.baseUrl}/api/scheduler/health`, {
@@ -556,6 +663,29 @@ async function runSmoke(runtime: StandaloneRuntime): Promise<void> {
     throw new Error('K-Proxy status check failed: ok is not true')
   }
 
+  const kproxySystemInfoResponse = await fetch(`${runtime.info.baseUrl}/api/kproxy/system-info`, {
+    headers: {
+      Authorization: `Bearer ${runtime.info.accessToken}`
+    }
+  })
+  if (!kproxySystemInfoResponse.ok) {
+    throw new Error(`K-Proxy system info check failed: HTTP ${kproxySystemInfoResponse.status}`)
+  }
+  const kproxySystemInfoBody = (await kproxySystemInfoResponse.json()) as {
+    ok?: boolean
+    platform?: string
+    caInstalled?: boolean
+    adminRecommended?: boolean
+  }
+  if (
+    kproxySystemInfoBody.ok !== true ||
+    typeof kproxySystemInfoBody.platform !== 'string' ||
+    typeof kproxySystemInfoBody.caInstalled !== 'boolean' ||
+    typeof kproxySystemInfoBody.adminRecommended !== 'boolean'
+  ) {
+    throw new Error('K-Proxy system info check failed: invalid body')
+  }
+
   const diagnosticsProbeResponse = await fetch(
     `${runtime.info.baseUrl}/api/diagnostics/http-probe`,
     {
@@ -641,8 +771,8 @@ export async function runStandaloneMain(): Promise<void> {
   }
 
   console.log(`[Standalone] Local admin server listening on ${runtime.info.baseUrl}`)
-  console.log(`[Standalone] Admin URL: ${runtime.info.adminUrl}`)
-  console.log(`[Standalone] Access token: ${runtime.info.accessToken}`)
+  console.log(`[Standalone] Admin URL: ${redactSensitiveText(runtime.info.adminUrl)}`)
+  console.log(`[Standalone] Access token: ${maskSecret(runtime.info.accessToken)}`)
   console.log(`[Standalone] Data dir: ${getDataDir()}`)
 
   if (!smoke && options.openBrowser !== false) {

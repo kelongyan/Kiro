@@ -39,6 +39,23 @@ export interface ProxyPoolValidateInput {
 export interface DiagnosticsServiceDeps {
   createProxyAgent?: (proxyUrl: string | undefined) => Dispatcher | undefined
   fetchWithAppProxy?: (url: string, init: RequestInit) => Promise<ProbeResponse>
+  getOverview?: () => Promise<{ checks: DiagnosticsOverviewCheck[] }>
+}
+
+export type DiagnosticsOverviewCategory =
+  | 'local'
+  | 'proxy'
+  | 'kiro'
+  | 'storage'
+  | 'webhook'
+  | 'scheduler'
+
+export interface DiagnosticsOverviewCheck {
+  id: string
+  label: string
+  category: DiagnosticsOverviewCategory
+  success: boolean
+  detail?: string
 }
 
 interface ProbeResponse {
@@ -56,6 +73,13 @@ export class DiagnosticsService {
 
   constructor(deps: DiagnosticsServiceDeps = {}) {
     this.deps = deps
+  }
+
+  async overview(): Promise<{ checks: DiagnosticsOverviewCheck[] }> {
+    if (this.deps.getOverview) {
+      return this.deps.getOverview()
+    }
+    return { checks: [] }
   }
 
   async run(params: DiagnosticsRunInput): Promise<{ results: DiagnoseResult[] }> {

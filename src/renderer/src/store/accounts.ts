@@ -42,10 +42,8 @@ import {
   machineIdGetCurrent,
   machineIdSet
 } from '../services/local-admin-machine-id'
-import {
-  accountSetProxyBinding,
-  proxyPoolValidate
-} from '../services/local-admin-diagnostics'
+import { kproxySwitchToAccount } from '../services/local-admin-kproxy'
+import { accountSetProxyBinding, proxyPoolValidate } from '../services/local-admin-diagnostics'
 import { getAppVersion, setProxySettings } from '../services/browser-runtime'
 import { pauseSchedulerTask, resumeSchedulerTask } from '../services/local-admin-scheduler'
 import { prepareAccountImportBatch, prepareExportDataImport } from './account-import'
@@ -844,6 +842,22 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
       }
     }
 
+    if (id) {
+      try {
+        const result = await kproxySwitchToAccount(id)
+        if (
+          !result.success &&
+          result.error &&
+          !result.error.includes('No device ID mapping') &&
+          !result.error.includes('K-Proxy not initialized')
+        ) {
+          console.warn('[KProxy] Failed to switch device mapping for active account:', result.error)
+        }
+      } catch (error) {
+        console.warn('[KProxy] Active account device mapping sync failed:', error)
+      }
+    }
+
     get().saveToStorage()
   },
 
@@ -1409,10 +1423,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     )
 
     // 使用后台刷新 API（不阻塞 UI）
-    const result = await backgroundBatchRefreshViaHttp(
-      accountsToRefresh,
-      autoRefreshConcurrency
-    )
+    const result = await backgroundBatchRefreshViaHttp(accountsToRefresh, autoRefreshConcurrency)
 
     const remoteFailures = Math.max(0, result.failedCount)
     return {
@@ -2166,15 +2177,14 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
         }
         if (target === 'cli' || target === 'both') {
           switchKiroAccountCliViaHttp({
-              accessToken: creds.accessToken || '',
-              refreshToken: creds.refreshToken || '',
-              clientId: creds.clientId,
-              clientSecret: creds.clientSecret,
-              region: creds.region || 'us-east-1',
-              profileArn: (availableAccount as { profileArn?: string }).profileArn,
-              provider: creds.provider
-            })
-            .catch((err) => console.warn('[AutoSwitch CLI] Failed:', err))
+            accessToken: creds.accessToken || '',
+            refreshToken: creds.refreshToken || '',
+            clientId: creds.clientId,
+            clientSecret: creds.clientSecret,
+            region: creds.region || 'us-east-1',
+            profileArn: (availableAccount as { profileArn?: string }).profileArn,
+            provider: creds.provider
+          }).catch((err) => console.warn('[AutoSwitch CLI] Failed:', err))
         }
       } else {
         console.log('[AutoSwitch] No available account to switch to')

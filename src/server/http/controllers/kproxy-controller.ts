@@ -37,6 +37,11 @@ export function createKProxyRouter(deps: KProxyControllerDeps): Router {
     writeJsonResponse(res, 200, { ok: result.success, ...result })
   })
 
+  router.post('/api/kproxy/restart', async (_req, res) => {
+    const result = await kproxyService.restart()
+    writeJsonResponse(res, 200, { ok: result.success, ...result })
+  })
+
   router.post('/api/kproxy/config', (_req, res, ctx) => {
     const body = readObjectBody(ctx.body)
     const config = (body.config || body) as Partial<KProxyConfig>
@@ -78,6 +83,11 @@ export function createKProxyRouter(deps: KProxyControllerDeps): Router {
     writeJsonResponse(res, 200, { ok: result.success, ...result })
   })
 
+  router.delete('/api/kproxy/device-mappings/:accountId', (_req, res, ctx) => {
+    const result = kproxyService.removeDeviceMapping(ctx.params.accountId)
+    writeJsonResponse(res, 200, { ok: result.success, ...result })
+  })
+
   router.post('/api/kproxy/device-mappings/switch', (_req, res, ctx) => {
     const body = readObjectBody(ctx.body)
     if (typeof body.accountId !== 'string') {
@@ -106,6 +116,11 @@ export function createKProxyRouter(deps: KProxyControllerDeps): Router {
     writeJsonResponse(res, 200, { ok: result.success, ...result })
   })
 
+  router.get('/api/kproxy/system-info', async (_req, res) => {
+    const result = await kproxyService.getSystemInfo()
+    writeJsonResponse(res, 200, { ok: result.success, ...result })
+  })
+
   router.post('/api/kproxy/ca-cert/install', async (_req, res) => {
     const result = await kproxyService.installCaCert()
     writeJsonResponse(res, 200, { ok: result.success, ...result })
@@ -113,6 +128,11 @@ export function createKProxyRouter(deps: KProxyControllerDeps): Router {
 
   router.post('/api/kproxy/ca-cert/uninstall', async (_req, res) => {
     const result = await kproxyService.uninstallCaCert()
+    writeJsonResponse(res, 200, { ok: result.success, ...result })
+  })
+
+  router.post('/api/kproxy/ca-cert/reset', async (_req, res) => {
+    const result = await kproxyService.resetCaCert()
     writeJsonResponse(res, 200, { ok: result.success, ...result })
   })
 

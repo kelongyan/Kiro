@@ -1,4 +1,5 @@
 import { serverFetch, type ServerFetchOptions } from '../../runtime/fetch'
+import { redactSensitiveText, redactValueForLog } from '../../logging/redact'
 
 // ============ 常量 ============
 
@@ -77,8 +78,9 @@ export async function refreshOidcToken(
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`[OIDC] Refresh failed: ${response.status} - ${errorText}`)
-      return { success: false, error: `HTTP ${response.status}: ${errorText}` }
+      const safeErrorText = redactSensitiveText(errorText)
+      console.error(`[OIDC] Refresh failed: ${response.status} - ${safeErrorText}`)
+      return { success: false, error: `HTTP ${response.status}: ${safeErrorText}` }
     }
 
     const data = (await response.json()) as {
@@ -95,7 +97,7 @@ export async function refreshOidcToken(
       expiresIn: data.expiresIn
     }
   } catch (error) {
-    console.error('[OIDC] Refresh error:', error)
+    console.error('[OIDC] Refresh error:', redactValueForLog(error))
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -136,8 +138,9 @@ export async function refreshSocialToken(
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`[Social] Refresh failed: ${response.status} - ${errorText}`)
-      return { success: false, error: `HTTP ${response.status}: ${errorText}` }
+      const safeErrorText = redactSensitiveText(errorText)
+      console.error(`[Social] Refresh failed: ${response.status} - ${safeErrorText}`)
+      return { success: false, error: `HTTP ${response.status}: ${safeErrorText}` }
     }
 
     const data = (await response.json()) as {
@@ -154,7 +157,7 @@ export async function refreshSocialToken(
       expiresIn: data.expiresIn
     }
   } catch (error) {
-    console.error('[Social] Refresh error:', error)
+    console.error('[Social] Refresh error:', redactValueForLog(error))
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'

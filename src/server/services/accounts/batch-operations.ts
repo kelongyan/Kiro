@@ -159,7 +159,8 @@ export interface BatchOperationDeps {
     idp: string,
     machineId?: string,
     region?: string,
-    email?: string
+    email?: string,
+    proxyUrl?: string
   ) => Promise<AccountCheckResult>
   /** 发布事件（进度/结果） */
   emitEvent: (type: string, payload: unknown) => void
@@ -435,7 +436,8 @@ export async function batchRefresh(
                 idp,
                 account.machineId,
                 region || 'us-east-1',
-                account.email
+                account.email,
+                boundProxyUrl
               )
             } catch (err) {
               checkResult = {
@@ -550,7 +552,8 @@ export async function batchCheck(
             idp,
             account.machineId,
             region || 'us-east-1',
-            account.email
+            account.email,
+            deps.getAccountProxyUrl?.(account.id)
           )
           const normalized = normalizeCheckResult(checkResult)
 

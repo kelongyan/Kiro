@@ -217,6 +217,26 @@ export class CertManager {
   }
 
   /**
+   * 删除现有 CA 证书与私钥文件，强制下一次 initialize 重新生成。
+   */
+  resetCACert(): void {
+    const certPath = path.join(this.dataPath, CA_CERT_FILENAME)
+    const keyPath = path.join(this.dataPath, CA_KEY_FILENAME)
+
+    if (fs.existsSync(certPath)) {
+      fs.unlinkSync(certPath)
+    }
+    if (fs.existsSync(keyPath)) {
+      fs.unlinkSync(keyPath)
+    }
+
+    this.caCert = null
+    this.caKey = null
+    this.caInfo = null
+    this.clearCache()
+  }
+
+  /**
    * 清除证书缓存
    */
   clearCache(): void {

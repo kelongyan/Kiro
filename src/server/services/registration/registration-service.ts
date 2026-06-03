@@ -1,9 +1,11 @@
 import {
   Registrar,
   newConfig,
+  type LogFn,
   type RegistrationConfig,
   type RegistrationResult
 } from '../../../core/registration'
+import type { ProxyPoolPick } from '../proxy-pool/proxy-pool-service'
 
 const MANUAL_KEY = '__manual__'
 
@@ -11,6 +13,14 @@ export type RegistrationEventEmitter = (type: string, payload: unknown) => void
 
 export interface RegistrationServiceDeps {
   emitEvent: RegistrationEventEmitter
+  pickProxyForRegistration?: () => ProxyPoolPick | null
+  reportProxyResult?: (
+    proxyId: string,
+    success: boolean,
+    boundEmail?: string,
+    error?: string
+  ) => void
+  createRegistrar?: (config: RegistrationConfig, log: LogFn) => RegistrationRunner
 }
 
 export interface RegistrationStatus {
@@ -28,12 +38,27 @@ export interface RegistrationServiceResult<T = unknown> {
   error?: string
 }
 
+interface RegistrationRunner {
+  run(): Promise<RegistrationResult>
+  runManualPhase1(): Promise<{ success: boolean; error?: string }>
+  runManualPhase2(email: string, fullName?: string): Promise<{ success: boolean; error?: string }>
+  runManualPhase3(otp: string): Promise<RegistrationResult>
+  abort(): void
+  destroy(): Promise<void>
+}
+
+interface SelectedRegistrationProxy {
+  id: string
+  url: string
+}
+
 export class RegistrationService {
-  private registrarPool = new Map<string, Registrar>()
-  private emitEvent: RegistrationEventEmitter
+  private registrarPool = new Map<string, RegistrationRunner>()
+  private manualProxySelections = new Map<string, SelectedRegistrationProxy>()
+  private deps: RegistrationServiceDeps
 
   constructor(deps: RegistrationServiceDeps) {
-    this.emitEvent = deps.emitEvent
+    this.deps = deps
   }
 
   async startAuto(
@@ -42,9 +67,13 @@ export class RegistrationService {
     const taskId = config.taskId || `auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     const logPrefix = config.taskId ? `[#${config.taskId.slice(0, 12)}] ` : ''
 
-    const cfg = newConfig(config)
+    const selectedProxy = this.pickProxyIfNeeded(config)
+    const cfg = newConfig({
+      ...config,
+      proxy: config.proxy || selectedProxy?.url || ''
+    })
     cfg.manualMode = false
-    const registrar = new Registrar(cfg, (message) =>
+    const registrar = this.createRegistrar(cfg, (message) =>
       this.sendLog(`${logPrefix}${message}`, config.taskId)
     )
     this.registrarPool.set(taskId, registrar)
@@ -52,12 +81,24 @@ export class RegistrationService {
     try {
       const result = await registrar.run()
       this.registrarPool.delete(taskId)
+      this.reportSelectedProxy(
+        selectedProxy,
+        result.status === 'success',
+        result.email,
+        result.error
+      )
       if (!config.taskId) {
-        this.emitEvent('registration-complete', result)
+        this.deps.emitEvent('registration-complete', result)
       }
       return { success: true, result }
     } catch (error) {
       this.registrarPool.delete(taskId)
+      this.reportSelectedProxy(
+        selectedProxy,
+        false,
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      )
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error)
@@ -72,15 +113,23 @@ export class RegistrationService {
       return { success: false, error: '已有手动注册流程正在进行' }
     }
 
-    const cfg = newConfig(config)
+    const selectedProxy = this.pickProxyIfNeeded(config)
+    const cfg = newConfig({
+      ...config,
+      proxy: config.proxy || selectedProxy?.url || ''
+    })
     cfg.manualMode = true
-    const registrar = new Registrar(cfg, (message) => this.sendLog(message))
+    const registrar = this.createRegistrar(cfg, (message) => this.sendLog(message))
     this.registrarPool.set(MANUAL_KEY, registrar)
+    if (selectedProxy) {
+      this.manualProxySelections.set(MANUAL_KEY, selectedProxy)
+    }
 
     const result = await registrar.runManualPhase1()
     if (!result.success) {
       await registrar.destroy()
       this.registrarPool.delete(MANUAL_KEY)
+      this.reportManualProxy(false, undefined, result.error)
     }
     return result
   }
@@ -98,6 +147,7 @@ export class RegistrationService {
     if (!result.success) {
       await registrar.destroy()
       this.registrarPool.delete(MANUAL_KEY)
+      this.reportManualProxy(false, email, result.error)
     }
     return result
   }
@@ -111,6 +161,7 @@ export class RegistrationService {
     const result = await registrar.runManualPhase3(otp)
     await registrar.destroy()
     this.registrarPool.delete(MANUAL_KEY)
+    this.reportManualProxy(result.status === 'success', result.email, result.error)
     return { success: true, result }
   }
 
@@ -121,6 +172,9 @@ export class RegistrationService {
         registrar.abort()
         await registrar.destroy()
         this.registrarPool.delete(taskId)
+        if (taskId === MANUAL_KEY) {
+          this.reportManualProxy(false, undefined, '注册已取消')
+        }
       }
       return { success: true }
     }
@@ -146,6 +200,35 @@ export class RegistrationService {
   }
 
   private sendLog(message: string, taskId?: string): void {
-    this.emitEvent('registration-log', { message, taskId })
+    this.deps.emitEvent('registration-log', { message, taskId })
+  }
+
+  private createRegistrar(config: RegistrationConfig, log: LogFn): RegistrationRunner {
+    return this.deps.createRegistrar?.(config, log) || new Registrar(config, log)
+  }
+
+  private pickProxyIfNeeded(config: Partial<RegistrationConfig>): SelectedRegistrationProxy | null {
+    if (config.proxy && config.proxy.trim()) return null
+    const picked = this.deps.pickProxyForRegistration?.()
+    if (!picked) return null
+    this.sendLog(`[ProxyPool] Using ${picked.protocol}://${picked.host}:${picked.port}`)
+    return { id: picked.id, url: picked.url }
+  }
+
+  private reportSelectedProxy(
+    proxy: SelectedRegistrationProxy | null,
+    success: boolean,
+    boundEmail?: string,
+    error?: string
+  ): void {
+    if (!proxy) return
+    this.deps.reportProxyResult?.(proxy.id, success, boundEmail, error)
+  }
+
+  private reportManualProxy(success: boolean, boundEmail?: string, error?: string): void {
+    const proxy = this.manualProxySelections.get(MANUAL_KEY)
+    if (!proxy) return
+    this.manualProxySelections.delete(MANUAL_KEY)
+    this.reportSelectedProxy(proxy, success, boundEmail, error)
   }
 }

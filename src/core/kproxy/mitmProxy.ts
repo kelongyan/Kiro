@@ -1,4 +1,5 @@
 // K-Proxy MITM 代理核心
+import { randomUUID } from 'crypto'
 import * as http from 'http'
 import * as net from 'net'
 import * as tls from 'tls'
@@ -296,6 +297,7 @@ export class MitmProxy {
             hostname,
             port,
             clientSocket,
+            info,
             contentLength,
             bodyReceived
           )
@@ -348,6 +350,7 @@ export class MitmProxy {
     const targetDeviceId = this.config.deviceId
 
     const info: KProxyRequestInfo = {
+      requestId: randomUUID(),
       timestamp: Date.now(),
       method: method || 'UNKNOWN',
       host: hostname,
@@ -407,10 +410,13 @@ export class MitmProxy {
     hostname: string,
     port: number,
     clientSocket: tls.TLSSocket,
+    requestInfo: KProxyRequestInfo,
     contentLength: number,
     bodyReceived: number
   ): void {
     const startTime = Date.now()
+    let statusCode = 200
+    let statusCaptured = false
 
     // 连接到目标服务器
     const serverSocket = tls.connect(
@@ -441,15 +447,28 @@ export class MitmProxy {
 
     // 将响应转发回客户端
     serverSocket.on('data', (chunk: Buffer) => {
+      if (!statusCaptured) {
+        statusCaptured = true
+        const firstLine = chunk.toString('latin1').split('\r\n', 1)[0]
+        const match = /^HTTP\/\d+\.\d+\s+(\d+)/i.exec(firstLine)
+        if (match) {
+          statusCode = Number(match[1]) || 200
+        }
+      }
       clientSocket.write(chunk)
     })
 
     serverSocket.on('end', () => {
       const duration = Date.now() - startTime
       this.events.onResponse?.({
+        requestId: requestInfo.requestId,
         timestamp: Date.now(),
         host: hostname,
-        statusCode: 200,
+        method: requestInfo.method,
+        path: requestInfo.path,
+        isMitm: requestInfo.isMitm,
+        deviceIdReplaced: requestInfo.deviceIdReplaced,
+        statusCode,
         duration
       })
       clientSocket.end()

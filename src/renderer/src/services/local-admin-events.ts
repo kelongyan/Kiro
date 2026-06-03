@@ -63,6 +63,7 @@ export interface ProxyStatusChangePayload {
 }
 
 export interface KProxyRequestPayload {
+  requestId: string
   timestamp: number
   method: string
   host: string
@@ -72,8 +73,13 @@ export interface KProxyRequestPayload {
 }
 
 export interface KProxyResponsePayload {
+  requestId: string
   timestamp: number
   host: string
+  method: string
+  path: string
+  isMitm: boolean
+  deviceIdReplaced: boolean
   statusCode: number
   duration: number
 }
@@ -143,8 +149,9 @@ export interface LocalAdminEventMap {
   'scheduler-task-paused': SchedulerTaskPayload
 }
 
-export type LocalAdminEventPayload<TType extends string> =
-  TType extends keyof LocalAdminEventMap ? LocalAdminEventMap[TType] : unknown
+export type LocalAdminEventPayload<TType extends string> = TType extends keyof LocalAdminEventMap
+  ? LocalAdminEventMap[TType]
+  : unknown
 
 export type LocalAdminEventListener<TPayload = unknown> = (
   event: LocalAdminServerEvent<TPayload>
@@ -192,8 +199,7 @@ function parseServerEvent(message: MessageEvent<string>): LocalAdminServerEvent 
       id: typeof parsed.id === 'string' ? parsed.id : '',
       type,
       payload: parsed.payload,
-      createdAt:
-        typeof parsed.createdAt === 'string' ? parsed.createdAt : new Date().toISOString()
+      createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : new Date().toISOString()
     }
   } catch {
     return null

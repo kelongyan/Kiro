@@ -1,8 +1,4 @@
-import {
-  LocalAdminClientError,
-  getJson,
-  postJson
-} from './local-admin-client'
+import { LocalAdminClientError, deleteJson, getJson, postJson } from './local-admin-client'
 
 export interface KProxyConfig {
   enabled?: boolean
@@ -28,6 +24,23 @@ export interface CACertInfo {
   fingerprint: string
   validFrom: string
   validTo: string
+}
+
+export interface KProxyStatusResult {
+  running: boolean
+  config: unknown
+  stats: unknown
+  caInfo: unknown
+  currentDeviceId?: string
+  activeMapping?: DeviceIdMapping | null
+}
+
+export interface KProxySystemInfo {
+  success: boolean
+  platform: string
+  caInstalled: boolean
+  adminRecommended: boolean
+  adminHint?: string
 }
 
 export interface DeviceIdMapping {
@@ -65,10 +78,7 @@ function toFailure<T extends LegacyResult>(error: unknown, fallback: string): T 
   } as T
 }
 
-async function getLegacyResult<T extends LegacyResult>(
-  path: string,
-  fallback: string
-): Promise<T> {
+async function getLegacyResult<T extends LegacyResult>(path: string, fallback: string): Promise<T> {
   try {
     return await getJson<HttpResult<T>>(path)
   } catch (error) {
@@ -108,9 +118,7 @@ export function kproxyInit(): Promise<
   return postLegacyResult('/api/kproxy/init', undefined, '初始化 K-Proxy 失败')
 }
 
-export function kproxyStart(
-  config?: KProxyConfig
-): Promise<LegacyResult & { port?: number }> {
+export function kproxyStart(config?: KProxyConfig): Promise<LegacyResult & { port?: number }> {
   return postLegacyResult('/api/kproxy/start', config, '启动 K-Proxy 失败')
 }
 
@@ -118,17 +126,16 @@ export function kproxyStop(): Promise<LegacyResult> {
   return postLegacyResult('/api/kproxy/stop', undefined, '停止 K-Proxy 失败')
 }
 
-export function kproxyGetStatus(): Promise<{
-  running: boolean
-  config: unknown
-  stats: unknown
-  caInfo: unknown
-}> {
+export function kproxyRestart(): Promise<LegacyResult & { port?: number }> {
+  return postLegacyResult('/api/kproxy/restart', undefined, '重启 K-Proxy 失败')
+}
+
+export function kproxyGetStatus(): Promise<KProxyStatusResult> {
   return getJson('/api/kproxy/status')
 }
 
 export function kproxyUpdateConfig(
-  config: KProxyConfig
+  config: Partial<KProxyConfig>
 ): Promise<LegacyResult & { config?: unknown }> {
   return postLegacyResult('/api/kproxy/config', config, '更新 K-Proxy 配置失败')
 }
@@ -151,6 +158,10 @@ export function kproxyGetDeviceMappings(): Promise<{
   error?: string
 }> {
   return getLegacyResult('/api/kproxy/device-mappings', '获取设备 ID 映射失败')
+}
+
+export function kproxyRemoveDeviceMapping(accountId: string): Promise<LegacyResult> {
+  return deleteJson(`/api/kproxy/device-mappings/${encodeURIComponent(accountId)}`)
 }
 
 export function kproxySwitchToAccount(accountId: string): Promise<LegacyResult> {
@@ -198,12 +209,25 @@ export function kproxyCheckCaCertInstalled(): Promise<
   return getLegacyResult('/api/kproxy/ca-cert/installed', '检测 CA 证书失败')
 }
 
+export function kproxyGetSystemInfo(): Promise<KProxySystemInfo> {
+  return getJson('/api/kproxy/system-info')
+}
+
 export function kproxyInstallCaCert(): Promise<LegacyResult & { message?: string }> {
   return postLegacyResult('/api/kproxy/ca-cert/install', undefined, '安装 CA 证书失败')
 }
 
 export function kproxyUninstallCaCert(): Promise<LegacyResult & { message?: string }> {
   return postLegacyResult('/api/kproxy/ca-cert/uninstall', undefined, '卸载 CA 证书失败')
+}
+
+export function kproxyResetCaCert(): Promise<
+  LegacyResult & {
+    running?: boolean
+    caInfo?: CACertInfo
+  }
+> {
+  return postLegacyResult('/api/kproxy/ca-cert/reset', undefined, '重置 CA 证书失败')
 }
 
 export function kproxyResetStats(): Promise<{ success: boolean }> {

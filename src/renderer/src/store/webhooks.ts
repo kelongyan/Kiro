@@ -51,8 +51,42 @@ export interface WebhookMessage {
   fields?: Record<string, string | number>
 }
 
+export interface WebhookHistoryEntry {
+  id: string
+  event: WebhookEvent | 'test'
+  title: string
+  delivered: number
+  skipped: number
+  success: boolean
+  error?: string
+  createdAt: number
+}
+
+export function createWebhookHistoryEntry(
+  event: WebhookEvent | 'test',
+  title: string,
+  result: {
+    success: boolean
+    delivered?: number
+    skipped?: number
+    error?: string
+  }
+): WebhookHistoryEntry {
+  return {
+    id: crypto.randomUUID(),
+    event,
+    title,
+    delivered: result.delivered ?? 0,
+    skipped: result.skipped ?? 0,
+    success: result.success,
+    error: result.error,
+    createdAt: Date.now()
+  }
+}
+
 interface WebhooksState {
   webhooks: Map<string, WebhookEntry>
+  history: WebhookHistoryEntry[]
 }
 
 interface WebhooksActions {
@@ -67,14 +101,18 @@ interface WebhooksActions {
   /** 持久化加载（在 store 初始化时调用） */
   loadFromStorage: () => void
   saveToStorage: () => void
+  clearHistory: () => void
 }
 
 type WebhooksStore = WebhooksState & WebhooksActions
 
 const STORAGE_KEY = 'kiro-webhooks'
+const HISTORY_STORAGE_KEY = 'kiro-webhook-history'
+const MAX_HISTORY = 50
 
 export const useWebhookStore = create<WebhooksStore>()((set, get) => ({
   webhooks: new Map(),
+  history: [],
 
   addWebhook: (input) => {
     const id = crypto.randomUUID()
@@ -125,8 +163,36 @@ export const useWebhookStore = create<WebhooksStore>()((set, get) => ({
     const webhooks = Array.from(get().webhooks.values()).filter(
       (w) => w.enabled && w.events.includes(event)
     )
-    if (webhooks.length === 0) return
-    await Promise.allSettled(webhooks.map((w) => sendWebhook(w, payload)))
+    if (webhooks.length === 0) {
+      const entry = createWebhookHistoryEntry(event, payload.title, {
+        success: true,
+        delivered: 0,
+        skipped: 0
+      })
+      set((state) => ({ history: [entry, ...state.history].slice(0, MAX_HISTORY) }))
+      get().saveToStorage()
+      return
+    }
+
+    const results = await Promise.allSettled(webhooks.map((w) => sendWebhook(w, payload)))
+    const delivered = results.filter((item) => item.status === 'fulfilled').length
+    const skipped = results.length - delivered
+    const firstRejected = results.find(
+      (item): item is PromiseRejectedResult => item.status === 'rejected'
+    )
+    const entry = createWebhookHistoryEntry(event, payload.title, {
+      success: skipped === 0,
+      delivered,
+      skipped,
+      error:
+        firstRejected?.reason instanceof Error
+          ? firstRejected.reason.message
+          : typeof firstRejected?.reason === 'string'
+            ? firstRejected.reason
+            : undefined
+    })
+    set((state) => ({ history: [entry, ...state.history].slice(0, MAX_HISTORY) }))
+    get().saveToStorage()
   },
 
   testWebhook: async (id) => {
@@ -139,8 +205,23 @@ export const useWebhookStore = create<WebhooksStore>()((set, get) => ({
         level: 'info',
         fields: { 时间: new Date().toLocaleString('zh-CN') }
       })
+      const entry = createWebhookHistoryEntry('test', webhook.label || '测试通知', {
+        success: true,
+        delivered: 1,
+        skipped: 0
+      })
+      set((state) => ({ history: [entry, ...state.history].slice(0, MAX_HISTORY) }))
+      get().saveToStorage()
       return { success: true }
     } catch (err) {
+      const entry = createWebhookHistoryEntry('test', webhook.label || '测试通知', {
+        success: false,
+        delivered: 0,
+        skipped: 1,
+        error: err instanceof Error ? err.message : String(err)
+      })
+      set((state) => ({ history: [entry, ...state.history].slice(0, MAX_HISTORY) }))
+      get().saveToStorage()
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   },
@@ -153,7 +234,15 @@ export const useWebhookStore = create<WebhooksStore>()((set, get) => ({
       if (!Array.isArray(arr)) return
       const map = new Map<string, WebhookEntry>()
       for (const w of arr) map.set(w.id, w)
-      set({ webhooks: map })
+      let history: WebhookHistoryEntry[] = []
+      try {
+        const rawHistory = localStorage.getItem(HISTORY_STORAGE_KEY)
+        const parsedHistory = rawHistory ? (JSON.parse(rawHistory) as WebhookHistoryEntry[]) : []
+        history = Array.isArray(parsedHistory) ? parsedHistory : []
+      } catch {
+        history = []
+      }
+      set({ webhooks: map, history })
     } catch (err) {
       console.warn('[Webhook] Load failed:', err)
     }
@@ -163,9 +252,15 @@ export const useWebhookStore = create<WebhooksStore>()((set, get) => ({
     try {
       const arr = Array.from(get().webhooks.values())
       localStorage.setItem(STORAGE_KEY, JSON.stringify(arr))
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(get().history.slice(0, MAX_HISTORY)))
     } catch (err) {
       console.warn('[Webhook] Save failed:', err)
     }
+  },
+
+  clearHistory: () => {
+    set({ history: [] })
+    get().saveToStorage()
   }
 }))
 

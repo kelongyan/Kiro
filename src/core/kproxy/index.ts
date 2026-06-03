@@ -121,6 +121,32 @@ export class KProxyService {
   }
 
   /**
+   * 重置 CA 证书并按需恢复运行状态。
+   */
+  async resetCACertificate(): Promise<CACertInfo> {
+    const wasRunning = this.isRunning()
+    if (wasRunning) {
+      await this.stop()
+    }
+
+    if (!this.certManager) {
+      await this.initialize()
+    }
+
+    this.certManager?.resetCACert()
+    this.certManager = createCertManager(this.dataPath)
+    const caInfo = await this.certManager.initialize()
+    this.mitmProxy = new MitmProxy(this.certManager, this.config, this.events)
+    this.cachedCaInfo = caInfo
+    this.initialized = true
+
+    if (wasRunning) {
+      await this.start()
+    }
+    return caInfo
+  }
+
+  /**
    * 设置当前设备 ID
    */
   setDeviceId(deviceId: string): void {

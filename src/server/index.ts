@@ -67,6 +67,11 @@ export {
   type ConfigSyncControllerDeps
 } from './http/controllers/config-sync-controller'
 
+export {
+  createProxyPoolRouter,
+  type ProxyPoolControllerDeps
+} from './http/controllers/proxy-pool-controller'
+
 export { AccountService, type AccountServiceDeps } from './services/accounts/account-service'
 
 export {
@@ -112,6 +117,16 @@ export {
   ConfigSyncService,
   type ConfigSyncServiceDeps
 } from './services/config-sync/config-sync-service'
+
+export {
+  ProxyPoolService,
+  parseProxyUrl,
+  type ProxyEntry,
+  type ProxyPoolConfig,
+  type ProxyPoolSnapshot,
+  type ProxyPoolStrategy,
+  type ProxyPoolValidateResult
+} from './services/proxy-pool/proxy-pool-service'
 
 export { getDataDir, setDataDir, resetDataDir } from './runtime/paths'
 

@@ -20,6 +20,8 @@ import {
   type SchedulerTaskSnapshot
 } from '@/services/local-admin-scheduler'
 import { useTranslation } from '@/hooks/useTranslation'
+import { useTaskStore, type TaskEntry } from '@/store/tasks'
+import { buildTaskCenterSections } from './task-center-utils'
 
 function formatDateTime(value?: string): string {
   if (!value) return '-'
@@ -44,6 +46,7 @@ function statusTone(status: string): string {
 export function TasksPage(): React.ReactNode {
   const { t } = useTranslation()
   const isEn = t('common.unknown') === 'Unknown'
+  const localTasksMap = useTaskStore((state) => state.tasks)
   const [tasks, setTasks] = useState<SchedulerTaskSnapshot[]>([])
   const [runs, setRuns] = useState<SchedulerRunSnapshot[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,6 +85,9 @@ export function TasksPage(): React.ReactNode {
     }
   }
 
+  const localTasks = Array.from(localTasksMap.values())
+  const sections = buildTaskCenterSections(tasks, localTasks, runs)
+
   return (
     <div className="flex-1 p-6 space-y-5 overflow-auto">
       <div className="flex items-center justify-between">
@@ -106,8 +112,28 @@ export function TasksPage(): React.ReactNode {
         </div>
       )}
 
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+          <Activity className="h-4 w-4" />
+          {isEn ? 'Batch Tasks' : '批量任务'}
+        </h2>
+        {sections.local.length === 0 ? (
+          <Card className="rounded-lg">
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+              {isEn ? 'No local batch tasks yet' : '还没有本地批量任务记录'}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {sections.local.map((task) => (
+              <LocalTaskCard key={task.id} task={task} isEn={isEn} />
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {tasks.map((task) => (
+        {sections.scheduler.map((task) => (
           <Card key={task.id} className="rounded-lg">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-3">
@@ -207,12 +233,12 @@ export function TasksPage(): React.ReactNode {
             <span>{isEn ? 'Started' : '开始'}</span>
             <span>{isEn ? 'Error' : '错误'}</span>
           </div>
-          {runs.length === 0 ? (
+          {sections.runs.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
               {loading ? (isEn ? 'Loading...' : '加载中...') : isEn ? 'No runs' : '暂无执行记录'}
             </div>
           ) : (
-            runs.map((run) => (
+            sections.runs.map((run) => (
               <div
                 key={run.id}
                 className="grid grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr_1fr] gap-3 px-4 py-3 text-sm border-t"
@@ -232,5 +258,102 @@ export function TasksPage(): React.ReactNode {
         </div>
       </div>
     </div>
+  )
+}
+
+function localStatusTone(status: TaskEntry['status']): string {
+  if (status === 'running') return 'bg-blue-500/10 text-blue-600 border-blue-500/20'
+  if (status === 'paused') return 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+  if (status === 'failed') return 'bg-destructive/10 text-destructive border-destructive/20'
+  if (status === 'cancelled') return 'bg-muted text-muted-foreground border-border'
+  return 'bg-success/10 text-success border-success/20'
+}
+
+function LocalTaskCard({ task, isEn }: { task: TaskEntry; isEn: boolean }): React.ReactNode {
+  const updateTask = useTaskStore((state) => state.updateTask)
+  const cancelTask = useTaskStore((state) => state.cancelTask)
+
+  const canPause = task.status === 'running' && typeof task.onPause === 'function'
+  const canResume = task.status === 'paused' && typeof task.onResume === 'function'
+  const canCancel =
+    (task.status === 'running' || task.status === 'paused') && typeof task.onCancel === 'function'
+
+  return (
+    <Card className="rounded-lg">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Activity className="h-4 w-4 text-primary" />
+              {task.title}
+            </CardTitle>
+            {task.subtitle && <p className="text-xs text-muted-foreground mt-2">{task.subtitle}</p>}
+            <div className="flex items-center gap-2 mt-2">
+              <Badge variant="outline" className={cn('text-xs', localStatusTone(task.status))}>
+                {task.status}
+              </Badge>
+              <Badge variant="secondary" className="text-xs">
+                {task.kind}
+              </Badge>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {canPause && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  task.onPause?.()
+                  updateTask(task.id, { status: 'paused' })
+                }}
+              >
+                <Pause className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {canResume && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  task.onResume?.()
+                  updateTask(task.id, { status: 'running' })
+                }}
+              >
+                <Play className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {canCancel && (
+              <Button size="sm" variant="outline" onClick={() => cancelTask(task.id)}>
+                <AlertTriangle className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-xs text-muted-foreground">{isEn ? 'Progress' : '进度'}</div>
+            <div className="font-mono mt-1">{task.progress}%</div>
+          </div>
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-xs text-muted-foreground">{isEn ? 'Done' : '完成'}</div>
+            <div className="font-mono mt-1">
+              {task.done}/{task.total}
+            </div>
+          </div>
+          <div className="rounded-md border bg-muted/20 p-3">
+            <div className="text-xs text-muted-foreground">{isEn ? 'Result' : '结果'}</div>
+            <div className="font-mono mt-1">
+              {task.successCount}/{task.failedCount}
+            </div>
+          </div>
+        </div>
+        {(task.lastMessage || task.error) && (
+          <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            {task.error || task.lastMessage}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }

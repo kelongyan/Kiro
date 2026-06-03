@@ -111,7 +111,8 @@ export interface AccountServiceDeps {
     idp: string,
     machineId?: string,
     region?: string,
-    email?: string
+    email?: string,
+    proxyUrl?: string
   ) => Promise<AccountCheckResult>
   /** 获取用量和限制 */
   getUsageAndLimits: (
@@ -120,14 +121,16 @@ export interface AccountServiceDeps {
     machineId?: string,
     accountMachineId?: string,
     region?: string,
-    email?: string
+    email?: string,
+    proxyUrl?: string
   ) => Promise<Record<string, unknown>>
   /** 获取用户信息 */
   getUserInfo: (
     accessToken: string,
     idp: string,
     machineId?: string,
-    email?: string
+    email?: string,
+    proxyUrl?: string
   ) => Promise<Record<string, unknown>>
 }
 
