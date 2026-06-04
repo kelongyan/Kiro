@@ -223,6 +223,26 @@ export class AccountPool {
     return Array.from(this.accounts.values())
   }
 
+  getCooldownUntil(account: ProxyAccount): number | undefined {
+    if (this.isSuspended(account) || this.isQuotaExhausted(account)) {
+      return undefined
+    }
+
+    const explicitCooldown = account.cooldownUntil
+    if (explicitCooldown && explicitCooldown > Date.now()) {
+      return explicitCooldown
+    }
+
+    const failures = account.errorCount || 0
+    if (failures <= 0 || !account.lastUsed) return undefined
+
+    const backoffMultiplier = Math.min(
+      Math.pow(2, failures - 1),
+      this.config.maxBackoffMultiplier
+    )
+    return account.lastUsed + this.config.baseCooldownMs * backoffMultiplier
+  }
+
   // 检查账号是否可用（断路器 + 指数退避 + 概率重试）
   private isAccountAvailable(account: ProxyAccount, now: number): boolean {
     // 检查是否被 Kiro 后端封禁（需人工解封）
@@ -249,23 +269,16 @@ export class AccountPool {
     }
 
     // 断路器检查：指数退避 + 概率重试
-    const failures = account.errorCount || 0
-    if (failures > 0 && account.lastUsed) {
-      const timeSinceFailure = now - account.lastUsed
-      // 指数退避：base * 2^(failures-1)，封顶为 maxBackoffMultiplier
-      const backoffMultiplier = Math.min(
-        Math.pow(2, failures - 1),
-        this.config.maxBackoffMultiplier
-      )
-      const effectiveCooldown = this.config.baseCooldownMs * backoffMultiplier
-
-      if (timeSinceFailure < effectiveCooldown) {
+    const cooldownUntil = this.getCooldownUntil(account)
+    if (cooldownUntil && cooldownUntil > now) {
+      const effectiveCooldown = cooldownUntil - (account.lastUsed || now)
+      if (cooldownUntil > now) {
         // 未超出冷却期，用概率重试
         if (Math.random() > this.config.probabilisticRetryChance) {
           return false
         }
         console.log(
-          `[AccountPool] Probabilistic retry for ${account.email || account.id} (failures=${failures}, cooldown=${Math.round(effectiveCooldown / 1000)}s)`
+          `[AccountPool] Probabilistic retry for ${account.email || account.id} (failures=${account.errorCount || 0}, cooldown=${Math.round(effectiveCooldown / 1000)}s)`
         )
       }
       // else: 冷却期已过，Half-Open 状态，允许重试
@@ -448,6 +461,7 @@ export class AccountPool {
     this.accounts.set(accountId, {
       ...account,
       errorCount,
+      cooldownUntil: now + effectiveCooldown,
       quotaExhaustedAt,
       lastUsed: now
     })
@@ -490,7 +504,7 @@ export class AccountPool {
     for (const account of all) {
       if (this.isQuotaExhausted(account, now)) {
         exhausted++
-      } else if (account.cooldownUntil && account.cooldownUntil > now) {
+      } else if (this.getCooldownUntil(account) && (this.getCooldownUntil(account) as number) > now) {
         cooldown++
       } else if (this.isAccountAvailable(account, now)) {
         available++

@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
+import { extname } from 'path'
 import { publishEvent, subscribeEvents, getEventHistory, type ServerEvent } from '../events'
 import { Router } from './router'
 import { serveStaticFile } from './static-files'
@@ -87,6 +88,10 @@ function formatSseEvent(event: ServerEvent): string {
 
 function isApiPath(pathname: string): boolean {
   return pathname === '/api' || pathname.startsWith('/api/')
+}
+
+function shouldRedirectToTokenizedUi(pathname: string): boolean {
+  return extname(pathname) === ''
 }
 
 export function createLocalAdminServer(options: LocalAdminServerOptions = {}): LocalAdminServer {
@@ -190,6 +195,18 @@ export function createLocalAdminServer(options: LocalAdminServerOptions = {}): L
 
     if (staticDir && !isApiPath(url.pathname)) {
       if (!ensureLocalConnection(req, res)) return
+      if (!getBearerToken(req, url) && shouldRedirectToTokenizedUi(url.pathname)) {
+        const redirectUrl = new URL(url.pathname, `http://${host}`)
+        for (const [key, value] of url.searchParams.entries()) {
+          if (key !== 'token') {
+            redirectUrl.searchParams.append(key, value)
+          }
+        }
+        redirectUrl.searchParams.set('token', accessToken)
+        res.writeHead(302, { Location: `${redirectUrl.pathname}${redirectUrl.search}` })
+        res.end()
+        return
+      }
       const result = await serveStaticFile(req, res, url, staticDir)
       if (result.handled) return
     }

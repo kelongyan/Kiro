@@ -2,6 +2,11 @@ import { SchedulerService } from '../../src/server/services/scheduler/scheduler-
 import type { AccountService } from '../../src/server/services/accounts/account-service'
 import type { AccountData } from '../../src/server/storage/account-store'
 import type { ConfigStore } from '../../src/server/storage/config-store'
+import type {
+  BatchCheckAccount,
+  BatchRefreshAccount,
+  BatchResult
+} from '../../src/server/services/accounts/batch-operations'
 
 function assert(condition: unknown, message: string): void {
   if (!condition) {
@@ -140,6 +145,91 @@ async function intervalChangeReschedulesTask(): Promise<void> {
   )
 }
 
+async function pauseCancelsRunningManualTask(): Promise<void> {
+  const data = makeAccountData({
+    accounts: {
+      slow: {
+        id: 'slow',
+        email: 'slow@example.com',
+        credentials: {
+          refreshToken: 'refresh-slow',
+          accessToken: 'access-slow'
+        }
+      }
+    }
+  })
+
+  let cancelObserved = false
+  const accountService = {
+    loadAccounts: () => data,
+    getLastSavedData: () => data,
+    batchRefresh: async (
+      _accounts: BatchRefreshAccount[],
+      _concurrency?: number,
+      _syncInfo?: boolean,
+      options?: { signal?: AbortSignal }
+    ): Promise<BatchResult> => {
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          resolve({
+            success: true,
+            completed: 1,
+            successCount: 1,
+            failedCount: 0
+          })
+        }, 200)
+        options?.signal?.addEventListener(
+          'abort',
+          () => {
+            cancelObserved = true
+            clearTimeout(timer)
+            resolve({
+              success: false,
+              completed: 0,
+              successCount: 0,
+              failedCount: 0,
+              cancelled: true
+            } as BatchResult & { cancelled: true })
+          },
+          { once: true }
+        )
+      })
+    },
+    batchCheck: async (_accounts: BatchCheckAccount[]) => ({
+      success: true,
+      completed: 0,
+      successCount: 0,
+      failedCount: 0
+    })
+  } as unknown as AccountService
+
+  const storeData = new Map<string, unknown>()
+  const store = {
+    get: (key: string) => storeData.get(key),
+    set: (key: string, value: unknown) => {
+      storeData.set(key, value)
+    }
+  } as unknown as ConfigStore
+
+  const service = new SchedulerService({
+    accountService,
+    store,
+    emitEvent: () => undefined
+  })
+  service.initialize()
+
+  const runPromise = service.runTaskNow('account-auto-refresh')
+  await wait(20)
+  const paused = service.pauseTask('account-auto-refresh')
+  const run = await runPromise
+
+  service.shutdown()
+  assert(cancelObserved, 'pausing a running task should abort the in-flight batch operation')
+  assert(paused.status === 'paused', 'pause should keep the task in paused state')
+  assert(run.status === 'cancelled', 'aborted manual task should be marked as cancelled')
+}
+
 await healthDoesNotRescheduleUnchangedTask()
 await disabledAutoRefreshClearsSchedule()
 await intervalChangeReschedulesTask()
+await pauseCancelsRunningManualTask()

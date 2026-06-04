@@ -11,7 +11,8 @@ import {
   type BatchCheckAccount,
   type BatchResult,
   type BatchOperationDeps,
-  type AccountCheckResult
+  type AccountCheckResult,
+  type BatchOperationOptions
 } from './batch-operations'
 import {
   checkAccountStatus,
@@ -234,7 +235,34 @@ export class AccountService {
   async batchRefresh(
     accounts: BatchRefreshAccount[],
     concurrency?: number,
-    syncInfo?: boolean
+    syncInfo?: boolean,
+    options?: BatchOperationOptions
+  ): Promise<BatchResult> {
+    const batchDeps: BatchOperationDeps = {
+      tokenRefreshDeps: this.tokenRefreshDeps,
+      getAccountProxyUrl: this.deps.getAccountProxyUrl,
+      checkAccount: this.deps.checkAccount,
+      refreshToken: async (account) => {
+        const credentials = account.credentials
+        return refreshTokenByMethod(
+          credentials.refreshToken,
+          credentials.clientId || '',
+          credentials.clientSecret || '',
+          credentials.region || 'us-east-1',
+          credentials.authMethod,
+          this.tokenRefreshDeps,
+          this.deps.getAccountProxyUrl?.(account.id)
+        )
+      },
+      emitEvent: this.deps.emitEvent
+    }
+    return batchRefresh(accounts, concurrency, syncInfo ?? true, batchDeps, options)
+  }
+
+  async batchCheck(
+    accounts: BatchCheckAccount[],
+    concurrency?: number,
+    options?: BatchOperationOptions
   ): Promise<BatchResult> {
     const batchDeps: BatchOperationDeps = {
       tokenRefreshDeps: this.tokenRefreshDeps,
@@ -242,17 +270,7 @@ export class AccountService {
       checkAccount: this.deps.checkAccount,
       emitEvent: this.deps.emitEvent
     }
-    return batchRefresh(accounts, concurrency, syncInfo ?? true, batchDeps)
-  }
-
-  async batchCheck(accounts: BatchCheckAccount[], concurrency?: number): Promise<BatchResult> {
-    const batchDeps: BatchOperationDeps = {
-      tokenRefreshDeps: this.tokenRefreshDeps,
-      getAccountProxyUrl: this.deps.getAccountProxyUrl,
-      checkAccount: this.deps.checkAccount,
-      emitEvent: this.deps.emitEvent
-    }
-    return batchCheck(accounts, concurrency, batchDeps)
+    return batchCheck(accounts, concurrency, batchDeps, options)
   }
 
   // ============ 验证凭证 ============

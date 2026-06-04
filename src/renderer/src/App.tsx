@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
+import { AlertTriangle, KeyRound, RefreshCw, WifiOff } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar } from './components/layout'
 import { renderPage } from './app/page-registry'
 import type { PageType } from './app/navigation'
 import { getInitialPageFromUrl, setPageInUrl } from './app/page-url'
+import { Button, Card, CardContent, CardHeader, CardTitle } from './components/ui'
+import { AppErrorBoundary } from './components/app/AppErrorBoundary'
+import { cn } from './lib/utils'
 import { useWebhookStore } from './store/webhooks'
 import { useAccountsStore } from './store/accounts'
 import {
@@ -11,15 +15,31 @@ import {
   connectLocalAdminEvents,
   onLocalAdminEvent
 } from './services/local-admin-events'
+import {
+  getLocalAdminAccessToken,
+  requestJson,
+  setLocalAdminAccessToken,
+  LocalAdminClientError
+} from './services/local-admin-client'
 
 // 后台刷新结果批量化间隔：N 条结果合并到一次 set，避免 N 次 Map 全量复制 + 渲染抖动
 const BACKGROUND_RESULT_FLUSH_MS = 120
+
+type AppShellState = 'ready' | 'missing-token' | 'connecting' | 'offline' | 'unauthorized'
+
+function isLocalAdminUnavailable(error: unknown): boolean {
+  return error instanceof TypeError || (error instanceof Error && /fetch/i.test(error.message))
+}
 
 function App(): React.JSX.Element {
   const [currentPage, setCurrentPage] = useState<PageType>(() =>
     getInitialPageFromUrl(window.location.search, window.location.hash)
   )
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
+  const [shellState, setShellState] = useState<AppShellState>(() =>
+    getLocalAdminAccessToken() ? 'connecting' : 'missing-token'
+  )
+  const [shellError, setShellError] = useState<string | null>(null)
 
   const {
     loadFromStorage,
@@ -36,7 +56,40 @@ function App(): React.JSX.Element {
     window.history.replaceState(null, '', setPageInUrl(window.location.href, page))
   }, [])
 
+  const verifyLocalAdmin = useCallback(async (): Promise<void> => {
+    const token = getLocalAdminAccessToken()
+    if (!token) {
+      setShellState('missing-token')
+      setShellError('缺少本地管理访问令牌')
+      return
+    }
+
+    setShellState((prev) => (prev === 'ready' ? prev : 'connecting'))
+    try {
+      await requestJson('/api/proxy/status')
+      setShellState('ready')
+      setShellError(null)
+    } catch (error) {
+      if (error instanceof LocalAdminClientError && error.status === 401) {
+        setShellState('unauthorized')
+        setShellError(error.message)
+        return
+      }
+      if (isLocalAdminUnavailable(error)) {
+        setShellState('offline')
+        setShellError(error instanceof Error ? error.message : '本地服务不可达')
+        return
+      }
+      setShellState('offline')
+      setShellError(error instanceof Error ? error.message : '本地服务不可用')
+    }
+  }, [])
+
   // 应用启动时加载数据并启动自动刷新
+  useEffect(() => {
+    void verifyLocalAdmin()
+  }, [verifyLocalAdmin])
+
   useEffect(() => {
     loadFromStorage().then(() => {
       startAutoTokenRefresh()
@@ -50,11 +103,12 @@ function App(): React.JSX.Element {
   }, [loadFromStorage, startAutoTokenRefresh, stopAutoTokenRefresh])
 
   useEffect(() => {
+    if (shellState !== 'ready') return
     connectLocalAdminEvents()
     return () => {
       closeLocalAdminEvents()
     }
-  }, [])
+  }, [shellState])
 
   useEffect(() => {
     const handlePopState = (): void => {
@@ -184,31 +238,119 @@ function App(): React.JSX.Element {
   }, [updateAccountStatus])
 
   return (
-    <div className="h-screen ambient-bg overflow-hidden flex flex-col">
-      <div className="flex-1 min-h-0 flex gap-2 p-2">
-        <Sidebar
-          currentPage={currentPage}
-          onPageChange={handlePageChange}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+    <AppErrorBoundary>
+      {shellState !== 'ready' ? (
+        <AppShellFallback
+          shellState={shellState}
+          shellError={shellError}
+          onRetry={() => void verifyLocalAdmin()}
+          onClearToken={() => {
+            setLocalAdminAccessToken(null)
+            setShellState('missing-token')
+            setShellError('本地访问令牌已清除')
+          }}
         />
-        <main className="flex-1 min-w-0 overflow-hidden rounded-3xl page-surface">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentPage}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-              className="h-full flex flex-col"
-            >
-              {renderPage(currentPage)}
-            </motion.div>
-          </AnimatePresence>
-        </main>
-      </div>
-    </div>
+      ) : (
+        <div className="h-screen ambient-bg overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-0 flex gap-2 p-2">
+            <Sidebar
+              currentPage={currentPage}
+              onPageChange={handlePageChange}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+            />
+            <main className="flex-1 min-w-0 overflow-hidden rounded-3xl page-surface">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentPage}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                  className="h-full flex flex-col"
+                >
+                  {renderPage(currentPage)}
+                </motion.div>
+              </AnimatePresence>
+            </main>
+          </div>
+        </div>
+      )}
+    </AppErrorBoundary>
   )
 }
 
 export default App
+
+function AppShellFallback({
+  shellState,
+  shellError,
+  onRetry,
+  onClearToken
+}: {
+  shellState: AppShellState
+  shellError: string | null
+  onRetry: () => void
+  onClearToken: () => void
+}): React.JSX.Element {
+  const icon =
+    shellState === 'missing-token' ? (
+      <KeyRound className="h-5 w-5" />
+    ) : shellState === 'connecting' ? (
+      <RefreshCw className="h-5 w-5 animate-spin" />
+    ) : shellState === 'unauthorized' ? (
+      <AlertTriangle className="h-5 w-5" />
+    ) : (
+      <WifiOff className="h-5 w-5" />
+    )
+
+  const title =
+    shellState === 'missing-token'
+      ? '缺少访问令牌'
+      : shellState === 'connecting'
+        ? '正在连接本地服务'
+        : shellState === 'unauthorized'
+          ? '访问令牌无效'
+          : '本地服务不可达'
+
+  const description =
+    shellState === 'missing-token'
+      ? '请使用带 ?token=... 的本地管理地址打开页面，或重新从服务端复制访问链接。'
+      : shellState === 'connecting'
+        ? '正在验证本地管理服务与访问令牌。'
+        : shellState === 'unauthorized'
+          ? '当前保存的本地访问令牌已失效，清除后请重新从服务端访问链接进入。'
+          : '本地服务当前没有响应。确认 standalone 服务还在运行，然后再重试。'
+
+  return (
+    <div className="min-h-screen ambient-bg flex items-center justify-center p-6">
+      <Card variant="glass-strong" className="w-full max-w-2xl rounded-3xl">
+        <CardHeader className="space-y-3">
+          <div className="flex items-center gap-3 text-foreground">
+            {icon}
+            <CardTitle className="text-lg">{title}</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm text-muted-foreground">
+          <p>{description}</p>
+          {shellError && (
+            <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-xs text-foreground">
+              {shellError}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={onRetry}>
+              <RefreshCw className={cn('h-4 w-4', shellState === 'connecting' && 'animate-spin')} />
+              重试连接
+            </Button>
+            {shellState === 'unauthorized' && (
+              <Button variant="outline" onClick={onClearToken}>
+                清除令牌
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

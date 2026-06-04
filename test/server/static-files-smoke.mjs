@@ -1,4 +1,5 @@
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { request as httpRequest } from 'node:http'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
@@ -11,6 +12,24 @@ function assert(condition, message) {
 
 async function readText(response) {
   return await response.text()
+}
+
+async function requestWithoutRedirect(url) {
+  return await new Promise((resolve, reject) => {
+    const req = httpRequest(url, { method: 'GET' }, (res) => {
+      const chunks = []
+      res.on('data', (chunk) => chunks.push(chunk))
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 0,
+          headers: res.headers,
+          body: Buffer.concat(chunks).toString('utf-8')
+        })
+      })
+    })
+    req.once('error', reject)
+    req.end()
+  })
 }
 
 const root = await mkdtemp(join(tmpdir(), 'kiro-static-smoke-'))
@@ -37,18 +56,44 @@ try {
   })
 
   try {
-    const indexResponse = await fetch(`${runtime.info.baseUrl}/`)
-    assert(indexResponse.status === 200, `Expected / to return 200, got ${indexResponse.status}`)
+    const indexRedirectResponse = await requestWithoutRedirect(`${runtime.info.baseUrl}/`)
+    assert(
+      indexRedirectResponse.status === 302,
+      `Expected / to redirect to tokenized UI, got ${indexRedirectResponse.status}`
+    )
+    const redirectedRoot = indexRedirectResponse.headers.location || ''
+    assert(
+      redirectedRoot.includes(`token=${encodeURIComponent(runtime.info.accessToken)}`),
+      'Expected / redirect to include access token'
+    )
+
+    const indexResponse = await fetch(new URL(redirectedRoot, runtime.info.baseUrl))
+    assert(
+      indexResponse.status === 200,
+      `Expected tokenized / to return 200, got ${indexResponse.status}`
+    )
     assert(
       (indexResponse.headers.get('content-type') || '').includes('text/html'),
-      'Expected / to return text/html'
+      'Expected tokenized / to return text/html'
     )
     assert((await readText(indexResponse)).includes('Kiro UI'), 'Expected / body to include index')
 
-    const deepLinkResponse = await fetch(`${runtime.info.baseUrl}/accounts/detail`)
+    const deepLinkRedirectResponse = await requestWithoutRedirect(
+      `${runtime.info.baseUrl}/accounts/detail`
+    )
+    assert(
+      deepLinkRedirectResponse.status === 302,
+      `Expected deep link to redirect to tokenized URL, got ${deepLinkRedirectResponse.status}`
+    )
+    const redirectedDeepLink = deepLinkRedirectResponse.headers.location || ''
+    assert(
+      redirectedDeepLink.includes(`token=${encodeURIComponent(runtime.info.accessToken)}`),
+      'Expected deep link redirect to include access token'
+    )
+    const deepLinkResponse = await fetch(new URL(redirectedDeepLink, runtime.info.baseUrl))
     assert(
       deepLinkResponse.status === 200,
-      `Expected deep link to return index.html, got ${deepLinkResponse.status}`
+      `Expected tokenized deep link to return index.html, got ${deepLinkResponse.status}`
     )
     assert(
       (await readText(deepLinkResponse)).includes('Kiro UI'),

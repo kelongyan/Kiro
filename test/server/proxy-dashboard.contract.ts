@@ -80,9 +80,11 @@ function dashboardSummarizesProxyControlPlane(): void {
 
     service.syncAccounts([
       makeAccount({ id: 'acc-ok' }),
+      makeAccount({ id: 'acc-cooling' }),
       makeAccount({ id: 'acc-suspended', suspendedAt: Date.now(), suspendReason: 'risk' }),
       makeAccount({ id: 'acc-exhausted', quotaUsed: 10, quotaLimit: 10 })
     ])
+    fixture.getServer().getAccountPool().recordError('acc-cooling')
     fixture.getServer().setRequestStats(9, 7, 2)
     fixture.getServer().setTotalTokens(120, 80)
     fixture.getServer().setTotalCredits(3.5)
@@ -116,10 +118,11 @@ function dashboardSummarizesProxyControlPlane(): void {
     assert(dashboard.requests.successRate === 7 / 9, 'dashboard should compute success rate')
     assert(dashboard.tokens.total === 200, 'dashboard should expose token total')
     assert(dashboard.credits.total === 3.5, 'dashboard should expose credits total')
-    assert(dashboard.accounts.total === 3, 'dashboard should expose account total')
+    assert(dashboard.accounts.total === 4, 'dashboard should expose account total')
     assert(dashboard.accounts.available === 1, 'dashboard should expose available accounts')
     assert(dashboard.accounts.suspended === 1, 'dashboard should count suspended accounts')
     assert(dashboard.accounts.exhausted === 1, 'dashboard should count exhausted accounts')
+    assert(dashboard.accounts.cooldown === 1, 'dashboard should count cooldown accounts')
     assert(dashboard.apiKeys.total === 2, 'dashboard should expose API key total')
     assert(dashboard.apiKeys.enabled === 1, 'dashboard should expose enabled API keys')
     assert(dashboard.apiKeys.disabled === 1, 'dashboard should expose disabled API keys')

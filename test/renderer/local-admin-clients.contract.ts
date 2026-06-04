@@ -1,5 +1,6 @@
 import {
   createLocalAdminClient,
+  LocalAdminClientError,
   deleteJson,
   getJson,
   getLocalAdminAccessToken,
@@ -84,6 +85,12 @@ import {
   proxyPoolValidateProxy
 } from '../../src/renderer/src/services/local-admin-proxy-pool'
 
+function assert(condition: unknown, message: string): void {
+  if (!condition) {
+    throw new Error(message)
+  }
+}
+
 async function restClientContract(): Promise<void> {
   const client = createLocalAdminClient({
     baseUrl: 'http://127.0.0.1:9527',
@@ -102,6 +109,39 @@ async function restClientContract(): Promise<void> {
   setLocalAdminAccessToken('local-token')
   const token: string | null = getLocalAdminAccessToken()
   void token
+}
+
+async function localAdminClientErrorContract(): Promise<void> {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: false, error: 'missing local token' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    })
+
+  try {
+    let thrown: unknown
+    try {
+      await createLocalAdminClient({
+        baseUrl: 'http://127.0.0.1:9527',
+        token: 'expired-token'
+      }).getJson('/api/proxy/status')
+    } catch (error) {
+      thrown = error
+    }
+
+    assert(thrown instanceof LocalAdminClientError, 'HTTP failures should throw LocalAdminClientError')
+    assert(
+      (thrown as LocalAdminClientError).status === 401,
+      'LocalAdminClientError should expose HTTP status'
+    )
+    assert(
+      (thrown as LocalAdminClientError).message === 'missing local token',
+      'LocalAdminClientError should surface API error messages'
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 }
 
 function eventsClientContract(): void {
@@ -345,6 +385,7 @@ async function kproxyClientContract(): Promise<void> {
 }
 
 void restClientContract
+void localAdminClientErrorContract
 void eventsClientContract
 void accountsClientContract
 void kiroLocalClientContract

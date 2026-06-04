@@ -120,6 +120,10 @@ function getNetworkAgent(account?: ProxyAccount): Dispatcher | undefined {
       if (agent) return agent
     }
   }
+  // 3. 显式禁用自动代理探测：用于测试隔离或排查系统/环境代理干扰
+  if (process.env.KIRO_DISABLE_AUTO_PROXY === '1') {
+    return undefined
+  }
   // 3. 环境变量
   const envProxy =
     process.env.HTTPS_PROXY ||

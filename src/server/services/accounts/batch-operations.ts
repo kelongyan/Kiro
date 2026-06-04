@@ -40,6 +40,7 @@ export interface BatchResult {
   completed: number
   successCount: number
   failedCount: number
+  cancelled?: boolean
 }
 
 export interface AccountCheckResult {
@@ -153,6 +154,14 @@ export interface BatchOperationDeps {
   tokenRefreshDeps: TokenRefreshDeps
   /** 获取账号绑定的代理 URL */
   getAccountProxyUrl?: (accountId: string) => string | undefined
+  /** 刷新单个账号 token */
+  refreshToken?: (account: BatchRefreshAccount) => Promise<{
+    success: boolean
+    accessToken?: string
+    refreshToken?: string
+    expiresIn?: number
+    error?: string
+  }>
   /** 检查账号状态（调用 Kiro API 获取用量/用户信息） */
   checkAccount: (
     accessToken: string,
@@ -164,6 +173,55 @@ export interface BatchOperationDeps {
   ) => Promise<AccountCheckResult>
   /** 发布事件（进度/结果） */
   emitEvent: (type: string, payload: unknown) => void
+}
+
+export interface BatchOperationOptions {
+  signal?: AbortSignal
+  perItemTimeoutMs?: number
+  adaptiveConcurrency?: boolean
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.message === 'Batch operation aborted'
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new Error('Batch operation aborted')
+  }
+}
+
+async function withTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number | undefined,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!timeoutMs || timeoutMs <= 0) return await work
+
+  return await new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Operation timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new Error('Batch operation aborted'))
+    }
+
+    signal?.addEventListener('abort', onAbort, { once: true })
+
+    work
+      .then((value) => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
+        resolve(value)
+      })
+      .catch((error) => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
+        reject(error)
+      })
+  })
 }
 
 function normalizeSubscriptionTitle(subscriptionTitle: string): string {
@@ -335,7 +393,8 @@ export async function batchRefresh(
   accounts: BatchRefreshAccount[],
   concurrency: number = 10,
   syncInfo: boolean = true,
-  deps: BatchOperationDeps
+  deps: BatchOperationDeps,
+  options: BatchOperationOptions = {}
 ): Promise<BatchResult> {
   console.log(
     `[BackgroundRefresh] Starting batch refresh for ${accounts.length} accounts, ` +
@@ -345,13 +404,19 @@ export async function batchRefresh(
   let completed = 0
   let successCount = 0
   let failedCount = 0
+  let batchSize = Math.max(1, concurrency)
+  let cancelled = false
 
-  for (let i = 0; i < accounts.length; i += concurrency) {
-    const batch = accounts.slice(i, i + concurrency)
+  for (let i = 0; i < accounts.length; i += batchSize) {
+    throwIfAborted(options.signal)
+    const batch = accounts.slice(i, i + batchSize)
+    let batchSuccessCount = 0
+    let batchFailedCount = 0
 
     await Promise.allSettled(
       batch.map(async (account) => {
         try {
+          throwIfAborted(options.signal)
           const {
             refreshToken,
             clientId,
@@ -381,6 +446,7 @@ export async function batchRefresh(
           if (needsTokenRefresh) {
             if (!refreshToken) {
               failedCount++
+              batchFailedCount++
               completed++
               deps.emitEvent('background-refresh-result', {
                 id: account.id,
@@ -390,18 +456,25 @@ export async function batchRefresh(
               return
             }
 
-            const refreshResult = await refreshTokenByMethod(
-              refreshToken,
-              clientId || '',
-              clientSecret || '',
-              region || 'us-east-1',
-              authMethod,
-              deps.tokenRefreshDeps,
-              boundProxyUrl
+            const refreshResult = await withTimeout(
+              deps.refreshToken
+                ? deps.refreshToken(account)
+                : refreshTokenByMethod(
+                    refreshToken,
+                    clientId || '',
+                    clientSecret || '',
+                    region || 'us-east-1',
+                    authMethod,
+                    deps.tokenRefreshDeps,
+                    boundProxyUrl
+                  ),
+              options.perItemTimeoutMs,
+              options.signal
             )
 
             if (!refreshResult.success) {
               failedCount++
+              batchFailedCount++
               completed++
               deps.emitEvent('background-refresh-result', {
                 id: account.id,
@@ -418,6 +491,7 @@ export async function batchRefresh(
 
           if (!newAccessToken) {
             failedCount++
+            batchFailedCount++
             completed++
             deps.emitEvent('background-refresh-result', {
               id: account.id,
@@ -431,15 +505,20 @@ export async function batchRefresh(
           let checkResult: AccountCheckResult | undefined
           if (syncInfo) {
             try {
-              checkResult = await deps.checkAccount(
-                newAccessToken,
-                idp,
-                account.machineId,
-                region || 'us-east-1',
-                account.email,
-                boundProxyUrl
+              checkResult = await withTimeout(
+                deps.checkAccount(
+                  newAccessToken,
+                  idp,
+                  account.machineId,
+                  region || 'us-east-1',
+                  account.email,
+                  boundProxyUrl
+                ),
+                options.perItemTimeoutMs,
+                options.signal
               )
             } catch (err) {
+              if (isAbortError(err)) throw err
               checkResult = {
                 success: false,
                 error: err instanceof Error ? err.message : String(err)
@@ -450,6 +529,7 @@ export async function batchRefresh(
           const normalized = normalizeCheckResult(checkResult)
 
           successCount++
+          batchSuccessCount++
           completed++
 
           // 发布进度
@@ -476,7 +556,12 @@ export async function batchRefresh(
             }
           })
         } catch (error) {
+          if (isAbortError(error)) {
+            cancelled = true
+            return
+          }
           failedCount++
+          batchFailedCount++
           completed++
           deps.emitEvent('background-refresh-result', {
             id: account.id,
@@ -495,13 +580,22 @@ export async function batchRefresh(
       failed: failedCount
     })
 
-    if (i + concurrency < accounts.length) {
+    if (cancelled || options.signal?.aborted) {
+      cancelled = true
+      break
+    }
+
+    if (options.adaptiveConcurrency && batch.length > 1 && batchSuccessCount === 0 && batchFailedCount > 0) {
+      batchSize = Math.max(1, Math.floor(batchSize / 2))
+    }
+
+    if (i + batchSize < accounts.length) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
 
   console.log(`[BackgroundRefresh] Completed: ${successCount} success, ${failedCount} failed`)
-  return { success: true, completed, successCount, failedCount }
+  return { success: !cancelled, completed, successCount, failedCount, cancelled }
 }
 
 // ============ 批量检查 ============
@@ -512,7 +606,8 @@ export async function batchRefresh(
 export async function batchCheck(
   accounts: BatchCheckAccount[],
   concurrency: number = 10,
-  deps: BatchOperationDeps
+  deps: BatchOperationDeps,
+  options: BatchOperationOptions = {}
 ): Promise<BatchResult> {
   console.log(
     `[BackgroundCheck] Starting batch check for ${accounts.length} accounts, concurrency: ${concurrency}`
@@ -521,17 +616,24 @@ export async function batchCheck(
   let completed = 0
   let successCount = 0
   let failedCount = 0
+  let batchSize = Math.max(1, concurrency)
+  let cancelled = false
 
-  for (let i = 0; i < accounts.length; i += concurrency) {
-    const batch = accounts.slice(i, i + concurrency)
+  for (let i = 0; i < accounts.length; i += batchSize) {
+    throwIfAborted(options.signal)
+    const batch = accounts.slice(i, i + batchSize)
+    let batchSuccessCount = 0
+    let batchFailedCount = 0
 
     await Promise.allSettled(
       batch.map(async (account) => {
         try {
+          throwIfAborted(options.signal)
           const { accessToken, authMethod, provider, region } = account.credentials
 
           if (!accessToken) {
             failedCount++
+            batchFailedCount++
             completed++
             deps.emitEvent('background-check-result', {
               id: account.id,
@@ -547,17 +649,22 @@ export async function batchCheck(
             idp = provider
           }
 
-          const checkResult = await deps.checkAccount(
-            accessToken,
-            idp,
-            account.machineId,
-            region || 'us-east-1',
-            account.email,
-            deps.getAccountProxyUrl?.(account.id)
+          const checkResult = await withTimeout(
+            deps.checkAccount(
+              accessToken,
+              idp,
+              account.machineId,
+              region || 'us-east-1',
+              account.email,
+              deps.getAccountProxyUrl?.(account.id)
+            ),
+            options.perItemTimeoutMs,
+            options.signal
           )
           const normalized = normalizeCheckResult(checkResult)
 
           successCount++
+          batchSuccessCount++
           completed++
 
           deps.emitEvent('background-check-progress', {
@@ -573,7 +680,12 @@ export async function batchCheck(
             data: normalized
           })
         } catch (error) {
+          if (isAbortError(error)) {
+            cancelled = true
+            return
+          }
           failedCount++
+          batchFailedCount++
           completed++
           deps.emitEvent('background-check-result', {
             id: account.id,
@@ -591,11 +703,20 @@ export async function batchCheck(
       failed: failedCount
     })
 
-    if (i + concurrency < accounts.length) {
+    if (cancelled || options.signal?.aborted) {
+      cancelled = true
+      break
+    }
+
+    if (options.adaptiveConcurrency && batch.length > 1 && batchSuccessCount === 0 && batchFailedCount > 0) {
+      batchSize = Math.max(1, Math.floor(batchSize / 2))
+    }
+
+    if (i + batchSize < accounts.length) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
 
   console.log(`[BackgroundCheck] Completed: ${successCount} success, ${failedCount} failed`)
-  return { success: true, completed, successCount, failedCount }
+  return { success: !cancelled, completed, successCount, failedCount, cancelled }
 }

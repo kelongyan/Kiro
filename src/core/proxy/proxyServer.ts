@@ -1110,10 +1110,12 @@ export class ProxyServer {
       return { reason: reasonMatch[1].toUpperCase(), message: msgMatch?.[1] || errMsg }
     }
 
-    // 2) 文本特征 "temporarily suspended" / "user id is ... suspended"
+    // 2) 文本特征 "temporarily suspended" / "temporarily is suspended"
     if (
-      /User\s+ID\s+is\s+(temporarily\s+)?suspended/i.test(errMsg) ||
-      /temporarily\s+suspended/i.test(errMsg)
+      /User\s+ID(?:\s*\([^)]*\))?\s+(?:is\s+temporarily|temporarily\s+is)\s+suspended/i.test(
+        errMsg
+      ) ||
+      /temporarily\s+(?:is\s+)?suspended/i.test(errMsg)
     ) {
       const msgMatch = errMsg.match(/"message"\s*:\s*"([^"]+)"/)
       return { reason: 'TEMPORARILY_SUSPENDED', message: msgMatch?.[1] || errMsg }
@@ -1657,6 +1659,26 @@ export class ProxyServer {
               }
             }
           }
+          continue
+        }
+
+        // 传输层错误：为当前账号记一次可恢复失败，并优先切到其他账号
+        if (this.isRecoverableTransportError(lastError)) {
+          console.log('[ProxyServer] Transport error, attempting account failover')
+          this.accountPool.recordError(
+            currentAccount.id,
+            ErrorType.RECOVERABLE,
+            this.extractErrorStatusCode(lastError)
+          )
+          if (this.config.enableMultiAccount) {
+            const nextAccount = this.accountPool.getNextAvailableAccount(currentAccount.id)
+            if (nextAccount && nextAccount.id !== currentAccount.id) {
+              currentAccount = nextAccount
+              continue
+            }
+          }
+          await this.waitForRetry(retryDelay * (attempt + 1), signal)
+          currentAccount = this.accountPool.getAccount(currentAccount.id) || currentAccount
           continue
         }
 
@@ -3199,7 +3221,7 @@ export class ProxyServer {
         await this.handleOpenAIStream(
           res,
           account,
-          kiroPayload,
+          (acc) => openaiToKiro(processedRequest, acc.profileArn, toolNameRegistry),
           request.model,
           startTime,
           0,
@@ -3656,7 +3678,7 @@ export class ProxyServer {
   private async handleOpenAIStream(
     res: http.ServerResponse,
     account: ProxyAccount,
-    kiroPayload: ReturnType<typeof openaiToKiro>,
+    buildPayload: (account: ProxyAccount) => ReturnType<typeof openaiToKiro>,
     model: string,
     startTime: number,
     currentRound: number = 0,
@@ -3665,7 +3687,8 @@ export class ProxyServer {
     matchedApiKey?: import('./types').ApiKey,
     toolNameRegistry: ToolNameRegistry = new ToolNameRegistry(),
     signal?: AbortSignal,
-    requestId?: string
+    requestId?: string,
+    initialChunkSent: boolean = false
   ): Promise<void> {
     if (!headersSent) {
       res.writeHead(200, {
@@ -3677,10 +3700,11 @@ export class ProxyServer {
 
     const id = streamId || `chatcmpl-${uuidv4()}`
     let toolCallIndex = 0
+    let hasStreamedContent = false
     const pendingToolCalls: Map<string, { index: number; name: string; arguments: string }> =
       new Map()
     // 发送初始 chunk（仅首轮）
-    if (currentRound === 0) {
+    if (currentRound === 0 && !initialChunkSent) {
       const initialChunk = createOpenaiStreamChunk(id, model, { role: 'assistant' })
       res.write(`data: ${JSON.stringify(initialChunk)}\n\n`)
     }
@@ -3688,10 +3712,11 @@ export class ProxyServer {
     return new Promise((resolve) => {
       callKiroApiStream(
         account,
-        kiroPayload,
+        buildPayload(account),
         (text, toolUse, isThinking) => {
           if (signal?.aborted || this.isResponseClosed(res)) return
           if (text && text.trim()) {
+            hasStreamedContent = true
             if (isThinking) {
               // 原生 thinking 内容 → 输出为 reasoning_content
               const chunk = createOpenaiStreamChunk(id, model, { reasoning_content: text })
@@ -3703,6 +3728,7 @@ export class ProxyServer {
             }
           }
           if (toolUse) {
+            hasStreamedContent = true
             const idx = toolCallIndex++
             const restoredToolUse = toolNameRegistry.restoreToolUse(toolUse)
             pendingToolCalls.set(toolUse.toolUseId, {
@@ -3825,38 +3851,79 @@ export class ProxyServer {
             resolve()
             return
           }
-          console.error('[ProxyServer] Stream error:', error)
-          res.write(`data: ${JSON.stringify({ error: { message: error.message } })}\n\n`)
-          res.end()
+          void (async () => {
+            const handledRecovery = this.isStreamRecoverableCandidate(error as Error)
+            const recoveredAccount = await this.recoverStreamError(
+              account,
+              error as Error,
+              hasStreamedContent,
+              signal
+            )
+            if (recoveredAccount && !this.isResponseClosed(res)) {
+              await this.handleOpenAIStream(
+                res,
+                recoveredAccount,
+                buildPayload,
+                model,
+                startTime,
+                currentRound,
+                id,
+                true,
+                matchedApiKey,
+                toolNameRegistry,
+                signal,
+                requestId,
+                true
+              )
+              resolve()
+              return
+            }
 
-          this.recordRequestFailed()
-          const errStatusCode = error.message.match(/(\d{3})/)?.[1]
-          this.accountPool.recordError(
-            account.id,
-            errStatusCode ? classifyError(parseInt(errStatusCode)) : ErrorType.RECOVERABLE,
-            errStatusCode ? parseInt(errStatusCode) : undefined
-          )
-          this.events.onResponse?.({
-            requestId,
-            path: '/v1/chat/completions',
-            model,
-            apiKeyId: matchedApiKey?.id,
-            accountId: account.id,
-            status: 500,
-            error: error.message
+            console.error('[ProxyServer] Stream error:', error)
+            res.write(`data: ${JSON.stringify({ error: { message: error.message } })}\n\n`)
+            res.end()
+
+            this.recordRequestFailed()
+            if (!(handledRecovery && !hasStreamedContent)) {
+              const parsedCode = this.extractErrorStatusCode(error as Error)
+              this.accountPool.recordError(
+                account.id,
+                this.classifyAccountError(error as Error, parsedCode ?? 500),
+                parsedCode
+              )
+            }
+            this.events.onResponse?.({
+              requestId,
+              path: '/v1/chat/completions',
+              model,
+              apiKeyId: matchedApiKey?.id,
+              accountId: account.id,
+              status: 500,
+              error: error.message
+            })
+            this.recordRequest({
+              requestId,
+              path: '/v1/chat/completions',
+              model,
+              apiKeyId: matchedApiKey?.id,
+              accountId: account.id,
+              status: 500,
+              responseTime: Date.now() - startTime,
+              success: false,
+              error: error.message
+            })
+            resolve()
+          })().catch((recoveryError) => {
+            console.error('[ProxyServer] Stream recovery error:', recoveryError)
+            if (!this.isResponseClosed(res)) {
+              res.write(
+                `data: ${JSON.stringify({ error: { message: (recoveryError as Error).message } })}\n\n`
+              )
+              res.end()
+            }
+            this.recordRequestFailed()
+            resolve()
           })
-          this.recordRequest({
-            requestId,
-            path: '/v1/chat/completions',
-            model,
-            apiKeyId: matchedApiKey?.id,
-            accountId: account.id,
-            status: 500,
-            responseTime: Date.now() - startTime,
-            success: false,
-            error: error.message
-          })
-          resolve()
         },
         signal,
         this.config.preferredEndpoint
@@ -4034,7 +4101,7 @@ export class ProxyServer {
         await this.handleClaudeStream(
           res,
           account,
-          kiroPayload,
+          (acc) => claudeToKiro(processedRequest, acc.profileArn, toolNameRegistry),
           request.model,
           startTime,
           0,
@@ -4148,7 +4215,7 @@ export class ProxyServer {
   private async handleClaudeStream(
     res: http.ServerResponse,
     account: ProxyAccount,
-    kiroPayload: ReturnType<typeof claudeToKiro>,
+    buildPayload: (account: ProxyAccount) => ReturnType<typeof claudeToKiro>,
     model: string,
     startTime: number,
     currentRound: number = 0,
@@ -4159,7 +4226,8 @@ export class ProxyServer {
     toolNameRegistry: ToolNameRegistry = new ToolNameRegistry(),
     signal?: AbortSignal,
     simulatedCacheUsage?: CacheUsage & { cacheProfile?: CacheProfile; accountId?: string },
-    requestId?: string
+    requestId?: string,
+    messageStartSent: boolean = false
   ): Promise<void> {
     if (!headersSent) {
       res.writeHead(200, {
@@ -4173,6 +4241,7 @@ export class ProxyServer {
     let currentBlockIndex = contentBlockIndex
     let hasStartedTextBlock = false
     let hasStartedThinkingBlock = false
+    let hasStreamedContent = false
     let pendingThinkingSignature: string | undefined
     const pendingToolCalls: Map<string, { name: string; input: Record<string, unknown> }> =
       new Map()
@@ -4188,10 +4257,13 @@ export class ProxyServer {
     }
 
     // 估算输入 tokens（基于 payload 大小）
-    const estimatedInputTokens = Math.max(1, Math.round(JSON.stringify(kiroPayload).length / 3))
+    const estimatedInputTokens = Math.max(
+      1,
+      Math.round(JSON.stringify(buildPayload(account)).length / 3)
+    )
 
     // 发送 message_start（仅首轮）
-    if (currentRound === 0) {
+    if (currentRound === 0 && !messageStartSent) {
       const messageStart = createClaudeStreamEvent('message_start', {
         message: {
           id,
@@ -4210,11 +4282,12 @@ export class ProxyServer {
     return new Promise((resolve) => {
       callKiroApiStream(
         account,
-        kiroPayload,
+        buildPayload(account),
         (text, toolUse, isThinking, reasoningSignature, redactedContent) => {
           if (signal?.aborted || this.isResponseClosed(res)) return
           // 优先处理 redacted_thinking（加密的 thinking 块，需单独 content_block）
           if (redactedContent) {
+            hasStreamedContent = true
             if (hasStartedTextBlock) {
               const blockStop = createClaudeStreamEvent('content_block_stop', {
                 index: currentBlockIndex
@@ -4245,6 +4318,7 @@ export class ProxyServer {
             return
           }
           if (text && text.trim()) {
+            hasStreamedContent = true
             if (isThinking) {
               // 原生 thinking 内容 → 输出为 Anthropic thinking block
               if (hasStartedTextBlock) {
@@ -4308,6 +4382,7 @@ export class ProxyServer {
             pendingThinkingSignature = reasoningSignature
           }
           if (toolUse) {
+            hasStreamedContent = true
             const restoredToolUse = toolNameRegistry.restoreToolUse(toolUse)
             if (hasStartedThinkingBlock) {
               flushThinkingSignature()
@@ -4468,41 +4543,90 @@ export class ProxyServer {
             resolve()
             return
           }
-          console.error('[ProxyServer] Stream error:', error)
-          const errorEvent = createClaudeStreamEvent('error', {
-            error: { type: 'api_error', message: error.message }
-          })
-          res.write(`event: error\ndata: ${JSON.stringify(errorEvent)}\n\n`)
-          res.end()
+          void (async () => {
+            const handledRecovery = this.isStreamRecoverableCandidate(error as Error)
+            const recoveredAccount = await this.recoverStreamError(
+              account,
+              error as Error,
+              hasStreamedContent,
+              signal
+            )
+            if (recoveredAccount && !this.isResponseClosed(res)) {
+              await this.handleClaudeStream(
+                res,
+                recoveredAccount,
+                buildPayload,
+                model,
+                startTime,
+                currentRound,
+                id,
+                true,
+                currentBlockIndex,
+                matchedApiKey,
+                toolNameRegistry,
+                signal,
+                simulatedCacheUsage
+                  ? {
+                      ...simulatedCacheUsage,
+                      accountId: recoveredAccount.id
+                    }
+                  : undefined,
+                requestId,
+                true
+              )
+              resolve()
+              return
+            }
 
-          this.recordRequestFailed()
-          const errStatusCode2 = error.message.match(/(\d{3})/)?.[1]
-          this.accountPool.recordError(
-            account.id,
-            errStatusCode2 ? classifyError(parseInt(errStatusCode2)) : ErrorType.RECOVERABLE,
-            errStatusCode2 ? parseInt(errStatusCode2) : undefined
-          )
-          this.events.onResponse?.({
-            requestId,
-            path: '/v1/messages',
-            model,
-            apiKeyId: matchedApiKey?.id,
-            accountId: account.id,
-            status: 500,
-            error: error.message
+            console.error('[ProxyServer] Stream error:', error)
+            const errorEvent = createClaudeStreamEvent('error', {
+              error: { type: 'api_error', message: error.message }
+            })
+            res.write(`event: error\ndata: ${JSON.stringify(errorEvent)}\n\n`)
+            res.end()
+
+            this.recordRequestFailed()
+            if (!(handledRecovery && !hasStreamedContent)) {
+              const parsedCode = this.extractErrorStatusCode(error as Error)
+              this.accountPool.recordError(
+                account.id,
+                this.classifyAccountError(error as Error, parsedCode ?? 500),
+                parsedCode
+              )
+            }
+            this.events.onResponse?.({
+              requestId,
+              path: '/v1/messages',
+              model,
+              apiKeyId: matchedApiKey?.id,
+              accountId: account.id,
+              status: 500,
+              error: error.message
+            })
+            this.recordRequest({
+              requestId,
+              path: '/v1/messages',
+              model,
+              apiKeyId: matchedApiKey?.id,
+              accountId: account.id,
+              status: 500,
+              responseTime: Date.now() - startTime,
+              success: false,
+              error: error.message
+            })
+            resolve()
+          })().catch((recoveryError) => {
+            console.error('[ProxyServer] Stream recovery error:', recoveryError)
+            if (!this.isResponseClosed(res)) {
+              const errorEvent = createClaudeStreamEvent('error', {
+                error: { type: 'api_error', message: (recoveryError as Error).message }
+              })
+              res.write(`event: error\ndata: ${JSON.stringify(errorEvent)}\n\n`)
+              res.end()
+            }
+            this.recordRequestFailed()
+            resolve()
           })
-          this.recordRequest({
-            requestId,
-            path: '/v1/messages',
-            model,
-            apiKeyId: matchedApiKey?.id,
-            accountId: account.id,
-            status: 500,
-            responseTime: Date.now() - startTime,
-            success: false,
-            error: error.message
-          })
-          resolve()
         },
         signal,
         this.config.preferredEndpoint
@@ -4534,9 +4658,8 @@ export class ProxyServer {
   ): void {
     if (this.isAbortError(error, signal) || this.isResponseClosed(res)) return
     this.recordRequestFailed()
-    const errCode = error.message.match(/(\d{3})/)?.[1]
-    const parsedCode = errCode ? parseInt(errCode) : 500
-    const errorType = classifyError(parsedCode)
+    const parsedCode = this.extractErrorStatusCode(error) ?? 500
+    const errorType = this.classifyAccountError(error, parsedCode)
     const isAuthError =
       error.message.includes('401') ||
       error.message.includes('403') ||
@@ -4605,6 +4728,139 @@ export class ProxyServer {
       success: false,
       error: error.message
     })
+  }
+
+  private extractErrorStatusCode(error: Error): number | undefined {
+    const matched = error.message.match(/(\d{3})/)?.[1]
+    return matched ? parseInt(matched) : undefined
+  }
+
+  private isRecoverableTransportError(error: Error): boolean {
+    const message = error.message.toLowerCase()
+    return (
+      message.includes('fetch failed') ||
+      message.includes('und_err') ||
+      message.includes('socket') ||
+      message.includes('econnreset') ||
+      message.includes('econnrefused') ||
+      message.includes('etimedout') ||
+      message.includes('headers timeout') ||
+      message.includes('body timeout') ||
+      message.includes('connect timeout') ||
+      message.includes('other side closed') ||
+      message.includes('terminated')
+    )
+  }
+
+  private classifyAccountError(error: Error, statusCode: number): ErrorType {
+    if (this.isRecoverableTransportError(error)) {
+      return ErrorType.RECOVERABLE
+    }
+    return classifyError(statusCode)
+  }
+
+  private isStreamRecoverableCandidate(error: Error): boolean {
+    const message = error.message || ''
+    return (
+      this.detectSuspendedError(message) !== null ||
+      this.isRecoverableTransportError(error) ||
+      message.includes('401') ||
+      message.includes('403') ||
+      message.includes('Auth') ||
+      message.includes('402') ||
+      message.includes('429') ||
+      message.includes('quota') ||
+      message.includes('ThrottlingException') ||
+      message.includes('reached the limit') ||
+      message.includes('ServiceQuotaExceededException') ||
+      message.includes('limit exceeded') ||
+      message.includes('rate limit')
+    )
+  }
+
+  private async recoverStreamError(
+    account: ProxyAccount,
+    error: Error,
+    hasStreamedContent: boolean,
+    signal?: AbortSignal
+  ): Promise<ProxyAccount | null> {
+    if (hasStreamedContent) return null
+
+    const errMsg = error.message || ''
+    const parsedCode = this.extractErrorStatusCode(error)
+    const nextAvailableAccount = (): ProxyAccount | null => {
+      if (this.config.enableMultiAccount) {
+        return this.accountPool.getNextAvailableAccount(account.id)
+      }
+      if (this.config.autoSwitchOnQuotaExhausted) {
+        return this.accountPool.getNextAvailableAccount(account.id)
+      }
+      return null
+    }
+
+    const suspendInfo = this.detectSuspendedError(errMsg)
+    if (suspendInfo) {
+      const newlyMarked = this.accountPool.markSuspended(
+        account.id,
+        suspendInfo.reason,
+        suspendInfo.message
+      )
+      if (newlyMarked) {
+        this.events.onAccountSuspended?.({
+          accountId: account.id,
+          email: account.email,
+          reason: suspendInfo.reason,
+          message: suspendInfo.message
+        })
+        this.appendAuditLog('account_suspended', {
+          accountId: account.id,
+          email: account.email,
+          reason: suspendInfo.reason
+        })
+        this.triggerWebhook('proxy-account-suspended', {
+          title: '反代账号被风控',
+          message: `账号 ${account.email || account.id.slice(0, 8)} 被 Kiro 后端标记为 ${suspendInfo.reason}，需要人工解封`,
+          level: 'error',
+          fields: {
+            邮箱: account.email || '-',
+            账号ID: account.id.slice(0, 8),
+            封禁原因: suspendInfo.reason,
+            详情: this.sanitizeErrorMessage(suspendInfo.message || '').slice(0, 200)
+          }
+        })
+      }
+      return nextAvailableAccount()
+    }
+
+    if (this.isRecoverableTransportError(error)) {
+      this.accountPool.recordError(account.id, ErrorType.RECOVERABLE, parsedCode)
+      return nextAvailableAccount()
+    }
+
+    if (errMsg.includes('401') || errMsg.includes('403') || errMsg.includes('Auth')) {
+      const refreshed = await this.refreshToken(account, signal)
+      if (refreshed) {
+        return this.accountPool.getAccount(account.id) || account
+      }
+      this.accountPool.recordError(account.id, ErrorType.RECOVERABLE, parsedCode)
+      return nextAvailableAccount()
+    }
+
+    if (
+      errMsg.includes('402') ||
+      errMsg.includes('429') ||
+      errMsg.includes('quota') ||
+      errMsg.includes('ThrottlingException') ||
+      errMsg.includes('reached the limit') ||
+      errMsg.includes('ServiceQuotaExceededException') ||
+      errMsg.includes('limit exceeded') ||
+      errMsg.includes('rate limit')
+    ) {
+      this.accountPool.recordError(account.id, ErrorType.RECOVERABLE, 429)
+      return nextAvailableAccount()
+    }
+
+    return null
   }
 
   // 读取请求体

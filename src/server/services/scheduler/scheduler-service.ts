@@ -53,6 +53,7 @@ interface SchedulerTaskState {
   lastStatus?: SchedulerRunStatus
   lastError?: string
   failureCount: number
+  abortController: AbortController | null
 }
 
 interface SchedulerTaskPreviousState {
@@ -146,6 +147,7 @@ export class SchedulerService {
 
   pauseTask(taskId: string): SchedulerTaskSnapshot {
     const task = this.requireTask(taskId)
+    task.abortController?.abort()
     task.paused = true
     task.enabled = false
     task.status = 'paused'
@@ -256,7 +258,8 @@ export class SchedulerService {
       running: false,
       policy: input.policy,
       timer: null,
-      failureCount: 0
+      failureCount: 0,
+      abortController: null
     }
     this.tasks.set(input.id, task)
     return { task }
@@ -295,6 +298,7 @@ export class SchedulerService {
     task.status = 'running'
     task.lastRunAt = Date.now()
     task.nextRunAt = undefined
+    task.abortController = new AbortController()
 
     const run: SchedulerRunSnapshot = {
       id: `${task.id}-${Date.now()}`,
@@ -318,14 +322,20 @@ export class SchedulerService {
       run.total = result.completed
       run.success = result.successCount
       run.failed = result.failedCount
-      run.status = result.failedCount > 0 ? 'failed' : 'success'
+      run.status = result.cancelled ? 'cancelled' : result.failedCount > 0 ? 'failed' : 'success'
       if (run.status === 'failed') {
         run.error = `${result.failedCount} 个账号失败`
+      } else if (run.status === 'cancelled') {
+        run.error = '任务已取消'
       }
       task.failureCount = run.status === 'failed' ? task.failureCount + 1 : 0
       task.lastError = run.error
       this.finishRun(task, run)
-      this.emitTaskEvent('scheduler-task-completed', task, run)
+      this.emitTaskEvent(
+        run.status === 'cancelled' ? 'scheduler-task-failed' : 'scheduler-task-completed',
+        task,
+        run
+      )
     } catch (error) {
       run.status = 'failed'
       run.error = error instanceof Error ? error.message : 'Unknown error'
@@ -335,6 +345,7 @@ export class SchedulerService {
       this.emitTaskEvent('scheduler-task-failed', task, run)
     } finally {
       task.running = false
+      task.abortController = null
       task.status = task.paused ? 'paused' : task.lastStatus === 'failed' ? 'failed' : 'idle'
       if (task.enabled && !task.paused) {
         const delay =
@@ -399,7 +410,11 @@ export class SchedulerService {
       failed: 0
     })
 
-    return this.deps.accountService.batchRefresh(payload, task.policy.concurrency, syncInfo)
+    return this.deps.accountService.batchRefresh(payload, task.policy.concurrency, syncInfo, {
+      signal: task.abortController?.signal,
+      perItemTimeoutMs: 30_000,
+      adaptiveConcurrency: true
+    })
   }
 
   private async runAccountCheckTask(task: SchedulerTaskState) {
@@ -429,7 +444,11 @@ export class SchedulerService {
       failed: 0
     })
 
-    return this.deps.accountService.batchCheck(payload, task.policy.concurrency)
+    return this.deps.accountService.batchCheck(payload, task.policy.concurrency, {
+      signal: task.abortController?.signal,
+      perItemTimeoutMs: 30_000,
+      adaptiveConcurrency: true
+    })
   }
 
   private getAccountData(): AccountData | null {

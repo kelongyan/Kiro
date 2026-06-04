@@ -270,6 +270,7 @@ class ProxyLogStore {
   private writePending = false
 
   async save(): Promise<void> {
+    if (!this.storePath) return
     if (this.writeInFlight) {
       // 已有写盘进行中：标记 pending，让其完成后立即重写最新数据
       this.writePending = true

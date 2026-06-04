@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import { existsSync } from 'fs'
+import { accessSync, existsSync, constants as fsConstants } from 'fs'
 import { resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { AccountService } from './services/accounts/account-service'
@@ -82,6 +82,14 @@ const DEFAULT_PORT = 9527
 const DEFAULT_ENCRYPTION_KEY = 'kiro-account-manager-secret-key'
 const DEFAULT_STATIC_DIR = resolve('out/renderer')
 
+function validateStandalonePaths(dataDir: string, staticDir?: string): void {
+  accessSync(resolve(dataDir), fsConstants.F_OK | fsConstants.R_OK | fsConstants.W_OK)
+  if (staticDir) {
+    const indexPath = resolve(staticDir, 'index.html')
+    accessSync(indexPath, fsConstants.F_OK | fsConstants.R_OK)
+  }
+}
+
 function parsePort(value: string | undefined): number {
   if (!value) return DEFAULT_PORT
   const parsed = Number(value)
@@ -151,6 +159,7 @@ export async function startStandaloneServer(
   const dataDir = options.dataDir || getDataDir()
   const staticDir =
     options.staticDir ?? (existsSync(DEFAULT_STATIC_DIR) ? DEFAULT_STATIC_DIR : undefined)
+  validateStandalonePaths(dataDir, staticDir)
   const fetchOpts = { createProxyAgent: (url: string | undefined) => safeCreateProxyAgent(url) }
   const withBoundProxy = (proxyUrl?: string) =>
     proxyUrl ? { ...fetchOpts, overrideProxyUrl: proxyUrl } : fetchOpts

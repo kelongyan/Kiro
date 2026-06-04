@@ -1,58 +1,88 @@
+import { Suspense, lazy } from 'react'
+import type { ComponentType, LazyExoticComponent } from 'react'
 import type { PageType } from './navigation'
-import { AccountManager } from '@renderer/features/accounts'
-import { AboutPage } from '@renderer/features/about'
-import { ConfigSyncPage } from '@renderer/features/config-sync'
-import { DiagnosePage } from '@renderer/features/diagnostics'
-import { HomePage } from '@renderer/features/home'
-import { KiroSettingsPage, McpServerActions } from '@renderer/features/kiro-settings'
-import { KProxyPage } from '@renderer/features/kproxy'
-import { LogsPage } from '@renderer/features/logs'
-import { MachineIdPage } from '@renderer/features/machine-id'
-import { ProxyPage } from '@renderer/features/proxy'
-import { ProxyPoolPage } from '@renderer/features/proxy-pool'
-import { RegisterPage } from '@renderer/features/register'
-import { SettingsPage } from '@renderer/features/settings'
-import { SubscriptionPage } from '@renderer/features/subscription'
-import { TasksPage } from '@renderer/features/tasks'
-import { WebhooksPage } from '@renderer/features/webhooks'
 
-void McpServerActions
+function lazyPage<TProps>(
+  loader: () => Promise<{ default: ComponentType<TProps> }>
+): LazyExoticComponent<ComponentType<TProps>> {
+  return lazy(loader)
+}
+
+const pageComponents: Record<PageType, LazyExoticComponent<ComponentType>> = {
+  home: lazyPage(() =>
+    import('@renderer/features/home').then((module) => ({ default: module.HomePage }))
+  ),
+  accounts: lazyPage(() =>
+    import('@renderer/features/accounts').then((module) => ({ default: module.AccountManager }))
+  ),
+  tasks: lazyPage(() =>
+    import('@renderer/features/tasks').then((module) => ({ default: module.TasksPage }))
+  ),
+  machineId: lazyPage(() =>
+    import('@renderer/features/machine-id').then((module) => ({ default: module.MachineIdPage }))
+  ),
+  kiroSettings: lazyPage(() =>
+    import('@renderer/features/kiro-settings').then((module) => ({
+      default: module.KiroSettingsPage
+    }))
+  ),
+  proxy: lazyPage(() =>
+    import('@renderer/features/proxy').then((module) => ({ default: module.ProxyPage }))
+  ),
+  kproxy: lazyPage(() =>
+    import('@renderer/features/kproxy').then((module) => ({ default: module.KProxyPage }))
+  ),
+  proxyPool: lazyPage(() =>
+    import('@renderer/features/proxy-pool').then((module) => ({ default: module.ProxyPoolPage }))
+  ),
+  register: lazyPage(() =>
+    import('@renderer/features/register').then((module) => ({ default: module.RegisterPage }))
+  ),
+  subscription: lazyPage(() =>
+    import('@renderer/features/subscription').then((module) => ({
+      default: module.SubscriptionPage
+    }))
+  ),
+  webhooks: lazyPage(() =>
+    import('@renderer/features/webhooks').then((module) => ({ default: module.WebhooksPage }))
+  ),
+  diagnose: lazyPage(() =>
+    import('@renderer/features/diagnostics').then((module) => ({ default: module.DiagnosePage }))
+  ),
+  configSync: lazyPage(() =>
+    import('@renderer/features/config-sync').then((module) => ({
+      default: module.ConfigSyncPage
+    }))
+  ),
+  logs: lazyPage(() =>
+    import('@renderer/features/logs').then((module) => ({ default: module.LogsPage }))
+  ),
+  settings: lazyPage(() =>
+    import('@renderer/features/settings').then((module) => ({ default: module.SettingsPage }))
+  ),
+  about: lazyPage(() =>
+    import('@renderer/features/about').then((module) => ({ default: module.AboutPage }))
+  )
+}
+
+function PageLoadingFallback(): React.JSX.Element {
+  return (
+    <div className="h-full p-6">
+      <div className="page-hero h-full flex items-center justify-center">
+        <div className="glass-card-subtle rounded-2xl px-6 py-4 text-sm text-muted-foreground">
+          Loading page...
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function renderPage(currentPage: PageType): React.JSX.Element {
-  switch (currentPage) {
-    case 'home':
-      return <HomePage />
-    case 'accounts':
-      return <AccountManager />
-    case 'tasks':
-      return <TasksPage />
-    case 'machineId':
-      return <MachineIdPage />
-    case 'kiroSettings':
-      return <KiroSettingsPage />
-    case 'proxy':
-      return <ProxyPage />
-    case 'kproxy':
-      return <KProxyPage />
-    case 'proxyPool':
-      return <ProxyPoolPage />
-    case 'register':
-      return <RegisterPage />
-    case 'subscription':
-      return <SubscriptionPage />
-    case 'webhooks':
-      return <WebhooksPage />
-    case 'diagnose':
-      return <DiagnosePage />
-    case 'configSync':
-      return <ConfigSyncPage />
-    case 'logs':
-      return <LogsPage />
-    case 'settings':
-      return <SettingsPage />
-    case 'about':
-      return <AboutPage />
-    default:
-      return <HomePage />
-  }
+  const PageComponent = pageComponents[currentPage] || pageComponents.home
+
+  return (
+    <Suspense fallback={<PageLoadingFallback />}>
+      <PageComponent />
+    </Suspense>
+  )
 }
